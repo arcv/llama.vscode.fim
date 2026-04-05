@@ -2,7 +2,7 @@ import vscode, { QuickPickItem, Uri } from "vscode";
 import { exec } from 'child_process';
 import fs from 'fs';
 import path from 'path';
-import { ChunkEntry, Env, LlmModel } from './types'
+import { ChunkEntry, LlmModel } from './types'
 import pm from 'picomatch'
 import * as https from 'https';
 import * as http from 'http';
@@ -21,7 +21,7 @@ interface BM25Stats {
 
 export class Utils {
     static MSG_NO_UESR_PERMISSION = "The user doesn't give a permission to execute the request!";
-    static EMPTY_CHAT = {name: "", id: ""}
+    static EMPTY_CHAT = { name: "", id: "" }
 
     static getLeadingSpaces = (input: string): string => {
         // Match the leading spaces using a regular expression
@@ -51,8 +51,8 @@ export class Utils {
 
     static getChunksInPlainText = (chunksToSend: any[]) => {
         let extraCont = "Here are pieces of code from different files of the project: \n"
-        + chunksToSend.reduce((accumulator, currentValue) => accumulator + "\nFile Name: "
-        + currentValue.filename + "\nText:\n" + currentValue.text + "\n\n", "");
+            + chunksToSend.reduce((accumulator, currentValue) => accumulator + "\nFile Name: "
+                + currentValue.filename + "\nText:\n" + currentValue.text + "\n\n", "");
         return extraCont;
     }
 
@@ -147,58 +147,58 @@ export class Utils {
         editor.selections = newSelections;
     }
 
-    static  removeLeadingSpaces = (textToUpdate: string): { removedSpaces: number, updatedText: string } => {
+    static removeLeadingSpaces = (textToUpdate: string): { removedSpaces: number, updatedText: string } => {
         const lines = textToUpdate.split(/\r?\n/);
-        
+
         // Find the length of the shortest leading space
         let nSpacesToRemove = Infinity;
-        
+
         for (const line of lines) {
             if (line.trim().length === 0) continue;
-            
+
             const leadingSpaces = line.match(/^\s*/)?.[0].length || 0;
             if (leadingSpaces < nSpacesToRemove) {
                 nSpacesToRemove = leadingSpaces;
             }
         }
-        
+
         if (nSpacesToRemove === Infinity || nSpacesToRemove === 0) {
             return {
                 removedSpaces: 0,
                 updatedText: textToUpdate
             };
         }
-        
+
         // Remove nSpacesToRemove leading characters from each line
-        const updatedLines = lines.map(line => 
-            line.length >= nSpacesToRemove 
-                ? line.substring(nSpacesToRemove) 
+        const updatedLines = lines.map(line =>
+            line.length >= nSpacesToRemove
+                ? line.substring(nSpacesToRemove)
                 : line
         );
-        
+
         return {
             removedSpaces: nSpacesToRemove,
             updatedText: updatedLines.join('\n')
         };
     }
 
-    static addLeadingSpaces = (textToUpdate: string, spacesToAdd: number): string =>{
+    static addLeadingSpaces = (textToUpdate: string, spacesToAdd: number): string => {
         const spaces = ' '.repeat(spacesToAdd);
-        
+
         return textToUpdate
             .split('\n')
             .map(line => spaces + line)
             .join('\n');
     }
 
-    static  executeTerminalCommand = async (command: string, cwd?: string): Promise<string> => {
+    static executeTerminalCommand = async (command: string, cwd?: string): Promise<string> => {
         return new Promise((resolve, reject) => {
             const options = cwd ? { cwd } : undefined;
-            
-            command = process.platform === 'win32' 
+
+            command = process.platform === 'win32'
                 ? `powershell -Command "${command.replace(/"/g, '\\"')}"`
                 : command;
-            
+
             exec(command, options, (error, stdout, stderr) => {
                 if (error) {
                     resolve(error.message);
@@ -208,7 +208,7 @@ export class Utils {
         });
     }
 
-    
+
 
     static isModifyingCommand = (command: string): boolean => {
         if (!command || typeof command !== 'string') {
@@ -232,7 +232,7 @@ export class Utils {
             /^add\-content\b/,
             /^scp\b/,
             /^rsync\b/,
-            
+
             // System modifications
             /^chmod\b/,
             /^chown\b/,
@@ -244,17 +244,17 @@ export class Utils {
             /^net\b/,
             /^diskpart\b/,
             /^format\b/,
-            
+
             // Package management
             /^(apt|yum|dnf|pacman|brew|pip|npm|pnpm|yarn|dotnet|winget|choco)\b/,
-            
+
             // Process management
             /^(kill|taskkill|stop\-process)\b/,
             /^start\b/,
-            
+
             // Network operations
             /^(ssh|ftp|sftp)\b/,
-            
+
             // Installation/execution
             /^\.\/\S+/,
             /^\.\\\S+/,
@@ -264,7 +264,7 @@ export class Utils {
             /^uninstall\b/,
             /^setup\b/,
             /^msiexec\b/,
-            
+
             // Dangerous patterns
             /^>/,             // Output redirection (overwrite)
             /^>>/,            // Output redirection (append)
@@ -313,7 +313,7 @@ export class Utils {
 
     static showYesNoDialog = async (message: string): Promise<boolean> => {
         const choice = await vscode.window.showInformationMessage(
-            "llama-vscode \n\n" + message,
+            "llama-vscode-fim \n\n" + message,
             { modal: true }, // Makes the dialog modal (blocks interaction until resolved)
             'Yes',
             'No'
@@ -324,7 +324,7 @@ export class Utils {
 
     static showUserChoiceDialog = async (message: string, acceptLabel: string): Promise<boolean> => {
         const choice = await vscode.window.showInformationMessage(
-            "llama-vscode \n\n" + message,
+            "llama-vscode-fim \n\n" + message,
             { modal: true }, // Makes the dialog modal (blocks interaction until resolved)
             acceptLabel
         );
@@ -334,7 +334,7 @@ export class Utils {
 
     static showYesYesdontaskNoDialog = async (message: string): Promise<[boolean, boolean]> => {
         const choice = await vscode.window.showInformationMessage(
-            "llama-vscode \n\n" + message,
+            "llama-vscode-fim \n\n" + message,
             { modal: true }, // Makes the dialog modal (blocks interaction until resolved)
             'Yes',
             "Yes, don't ask again",
@@ -346,11 +346,11 @@ export class Utils {
 
     static showYesNoNodontAskDialog = async (message: string, acceptLabel: string): Promise<[boolean, boolean]> => {
         const choice = await vscode.window.showInformationMessage(
-            "llama-vscode \n\n" + message,
+            "llama-vscode-fim \n\n" + message,
             { modal: true }, // Makes the dialog modal (blocks interaction until resolved)
             acceptLabel,
             'No',
-            "No, don't ask again"            
+            "No, don't ask again"
         );
 
         return [choice === acceptLabel, choice === "No, don't ask again"];
@@ -358,7 +358,7 @@ export class Utils {
 
     static showOkDialog = async (message: string) => {
         const choice = await vscode.window.showInformationMessage(
-             "llama-vscode \n\n" + message,
+            "llama-vscode-fim \n\n" + message,
             { modal: true }, // Makes the dialog modal (blocks interaction until resolved)
             'OK'
         );
@@ -368,11 +368,11 @@ export class Utils {
         try {
             // Search for files matching the name (glob pattern requires **/)
             const files = await vscode.workspace.findFiles(`**/${shortFileName}`, null, 1);
-            
+
             if (files.length > 0) {
                 return files[0].fsPath;
             }
-            
+
             vscode.window.showWarningMessage(`File "${shortFileName}" not found in workspace`);
             return undefined;
         } catch (error) {
@@ -382,26 +382,26 @@ export class Utils {
     }
 
     static listDirectoryContents = (absolutePath: string): string => {
-        try {       
+        try {
             if (!fs.existsSync(absolutePath)) {
                 return `Error: Path does not exist - ${absolutePath}`;
             }
-        
+
             if (!fs.statSync(absolutePath).isDirectory()) {
                 return `Error: Path is not a directory - ${absolutePath}`;
             }
-            
+
             const contents = fs.readdirSync(absolutePath, { withFileTypes: true });
-            
+
             let output = `Contents of ${absolutePath}:\n\n`;
-            
+
             const directories = contents.filter(dirent => dirent.isDirectory()).map(dirent => `[DIR] ${dirent.name}`);
             const files = contents.filter(dirent => dirent.isFile()).map(dirent => `[FILE] ${dirent.name}`);
-            
+
             output += directories.join('\n');
             if (directories.length && files.length) output += '\n';
             output += files.join('\n');
-            
+
             return output;
         } catch (error) {
             return `Error reading directory: ${error instanceof Error ? error.message : String(error)}`;
@@ -413,24 +413,24 @@ export class Utils {
         excludeGlobPtr: string,
         searchPattern: string,
         chunks: Map<number, ChunkEntry>
-        ): string => {
+    ): string => {
 
-        const MAX_REG_EXP_MATCHES = 50;        
-        let matches:string = "";
-        let totalMatches:number = 0;
+        const MAX_REG_EXP_MATCHES = 50;
+        let matches: string = "";
+        let totalMatches: number = 0;
         const regexSearch = new RegExp(searchPattern);
         const isMatchInclude = includeGlob == undefined || includeGlob.trim() == "" ? undefined : pm(includeGlob);
         const isMatchExclude = excludeGlobPtr == undefined || excludeGlobPtr.trim() == "" ? undefined : pm(excludeGlobPtr);
         let valuesIterator = chunks.values()
         let chunkIter = valuesIterator.next();
-        while (!chunkIter.done){
+        while (!chunkIter.done) {
             let chunk = chunkIter.value;
-            if (chunk && (isMatchInclude == undefined || isMatchInclude(chunk.uri)) && (isMatchExclude == undefined || !isMatchExclude(chunk.uri))){
+            if (chunk && (isMatchInclude == undefined || isMatchInclude(chunk.uri)) && (isMatchExclude == undefined || !isMatchExclude(chunk.uri))) {
                 const lines = chunk.content.split('\n');
                 let index = 0;
-                for (const line of lines){
+                for (const line of lines) {
                     if (regexSearch.test(line)) {
-                        matches += "\n"+ chunk.uri + ":" + (chunk.firstLine + index) + ": " + line;
+                        matches += "\n" + chunk.uri + ":" + (chunk.firstLine + index) + ": " + line;
                         totalMatches++;
                         if (totalMatches > MAX_REG_EXP_MATCHES) return matches;
                     }
@@ -441,16 +441,16 @@ export class Utils {
         }
         if (matches.trim() == "") matches = "No matches found"
         return matches;
-    } 
+    }
 
-    static getAbsolutFilePath = (filePath:string): string => {        
+    static getAbsolutFilePath = (filePath: string): string => {
         if (path.isAbsolute(filePath)) {
             return filePath;
         } else {
             if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
                 return "";
             }
-            
+
             // Resolve against first workspace folder
             const workspaceRoot = vscode.workspace.workspaceFolders[0].uri.fsPath;
             const absolutePath = path.resolve(workspaceRoot, filePath);
@@ -492,14 +492,14 @@ export class Utils {
         const existingCodeMarker = '// ... existing code ...';
         const editParts = edits.split(existingCodeMarker).filter(part => part.trim() !== '');
         let currentContent = fileContent;
-        
+
         for (let i = 0; i < editParts.length; i++) {
             const part = editParts[i];
             const lines = part.split(/\r?\n/);
-            
+
             let contextBefore = '';
             let contextAfter = '';
-            
+
             if (i === 0 && !edits.startsWith(existingCodeMarker)) {
                 // First edit part: use only contextAfter if available
                 if (lines.length >= 3) {
@@ -525,7 +525,7 @@ export class Utils {
                     contextAfter = lines.slice(-half).join('\n');
                 }
             }
-            
+
             if (i === 0 && contextAfter && !edits.trim().startsWith(existingCodeMarker)) {
                 // First edit part: match from start to contextAfter
                 const afterPattern = Utils.escapeRegExp(contextAfter);
@@ -553,70 +553,8 @@ export class Utils {
                 currentContent = currentContent.replace(regex, part);
             }
         }
-        
+
         return currentContent;
-    }
-
-    static  applyEdits = async (diffText: string): Promise<string> => {
-        // Extract edit blocks from the diff-fenced format
-        let ret = UI_TEXT_KEYS.fileUpdated as string;
-        let editBlocks: string[][] = [];
-        if (!diffText) return "Edit file: The input parameter is missing!";
-        const blocks = diffText.split("```diff")
-        for (const block of blocks.slice(1)){
-            editBlocks.push(Utils.extractConflictParts("```diff" + block))
-        }
-
-        if (editBlocks.length === 0) {
-            if (diffText.length > 0) editBlocks.push(Utils.extractConflictParts("```diff\n" + diffText))
-            else return "Edit file: The input parameter is missing or incorrect format!";
-        }
-
-        for (const block of editBlocks) {
-            if (block.length === 3) {
-                let filePath = block[0].trim();
-                if (filePath.startsWith("<file_path>")) filePath = filePath.slice("<file_path>".length);
-                if (filePath.endsWith("</file_path>")) filePath = filePath.slice(0,-"</file_path>".length)
-                let searchText = block[1].trim();
-                // Make sure only \n is used for new line
-                searchText = searchText.split(/\r?\n/).join("\n");
-                const replaceText = block[2].trim();
-                
-                let result = "";
-                let absolutePath = filePath;
-                if (!path.isAbsolute(filePath)) {
-                    if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
-                        return "File not found: " + filePath;
-                    }
-                    const workspaceRoot = vscode.workspace.workspaceFolders[0].uri.fsPath;
-                    absolutePath = path.join(workspaceRoot, filePath);
-                }
-                try {
-                    const fileExists = await fs.promises.access(absolutePath).then(() => true).catch(() => false);
-                    if (!fileExists){
-                        await fs.promises.mkdir(path.dirname(absolutePath), { recursive: true });
-                        await fs.promises.writeFile(absolutePath, result);
-                    }
-                    // Ensure only \n is used for new line
-                    result = (await fs.promises.readFile(absolutePath, 'utf-8')).split(/\r?\n/).join("\n");
-                    // Handle empty search text case
-                    if (searchText.trim() === '') {
-                        result += '\n' + replaceText;
-                        await fs.promises.writeFile(absolutePath, result);
-                    } else if (result.includes(searchText)) {
-                        result = result.split(searchText).join(replaceText);
-                        await fs.promises.writeFile(absolutePath, result);
-                    } else {
-                        ret = "Error edititing file " + filePath + " - " + "The search text is not found in the file.";
-                    }                    
-                } catch (error) {
-                    if (error instanceof Error) ret = "Error edititing file " + filePath + " - " + error.message;
-                    else ret = "Error edititing file " + filePath + " - " + error;
-                }
-            }
-        }
-        
-        return ret;
     }
 
     static extractConflictParts = (input: string): [string, string, string] => {
@@ -651,10 +589,10 @@ export class Utils {
     static showYesNoPopup = (message: string): Promise<boolean> => {
         return new Promise((resolve) => {
             const panel = vscode.window.createWebviewPanel(
-            'yesNoPopup',
-            'Confirmation',
-            { viewColumn: vscode.ViewColumn.One, preserveFocus: true },
-            { enableScripts: true }
+                'yesNoPopup',
+                'Confirmation',
+                { viewColumn: vscode.ViewColumn.One, preserveFocus: true },
+                { enableScripts: true }
             );
 
             panel.webview.html = `
@@ -699,10 +637,10 @@ export class Utils {
             `;
 
             panel.webview.onDidReceiveMessage((message) => {
-            if (message.command === 'answer') {
-                resolve(message.value);
-                panel.dispose();
-            }
+                if (message.command === 'answer') {
+                    resolve(message.value);
+                    panel.dispose();
+                }
             });
         });
     }
@@ -732,7 +670,7 @@ export class Utils {
                 res.setEncoding('utf8');
 
                 let rawData = '';
-                
+
                 // Collect chunks of data
                 res.on('data', (chunk) => {
                     rawData += chunk;
@@ -787,7 +725,7 @@ export class Utils {
 
     static readExtensionFile = async (relativePath: string): Promise<string> => {
         // Get the extension's context (passed in activation)
-        const extension = vscode.extensions.getExtension('ggml-org.llama-vscode');
+        const extension = vscode.extensions.getExtension('arcv.llama-vscode-fim');
         if (!extension) {
             throw new Error('Extension not found');
         }
@@ -816,17 +754,10 @@ export class Utils {
         }
     }
 
-    static removeFaOptionFromEnvs = (envs: Env[]) => {
-        for (let env of envs) {
-            if (env.chat && env.chat.localStartCommand) env.chat.localStartCommand = Utils.removeFaOption(env.chat.localStartCommand);
-            if (env.tools && env.tools.localStartCommand) env.tools.localStartCommand = Utils.removeFaOption(env.tools.localStartCommand);
-        }
-    }
-
     static isTimeToUpgrade = (date1: Date, date2: Date, interval: number): boolean => {
-        const twentyFourHoursInMs = interval  * 60 * 60 * 1000; // 24 hours in milliseconds
+        const twentyFourHoursInMs = interval * 60 * 60 * 1000; // 24 hours in milliseconds
         const timeDifference = date2.getTime() - date1.getTime();
-        
+
         return timeDifference >= twentyFourHoursInMs;
     }
 
@@ -838,8 +769,7 @@ export class Utils {
     static getFunctionFromFile = (filePath: string) => {
         let functionCode = fs.readFileSync(filePath, 'utf-8');
         const functionString = '(' + functionCode + ')';
-        const toolFunction = eval(functionString);
-        return toolFunction;
+        return "";
     }
 
     static async getValidatedInput(prompt: string, validator: (input: string) => boolean, maxAttempts: number = 3, options: vscode.InputBoxOptions = {}): Promise<string | undefined> {
@@ -867,7 +797,7 @@ export class Utils {
         return undefined;
     }
 
-    static getStandardQpList(list:any[], prefix: string, lastModelNumber: number = 0) {
+    static getStandardQpList(list: any[], prefix: string, lastModelNumber: number = 0) {
         const items: QuickPickItem[] = [];
         let i = lastModelNumber;
         for (let elem of list) {
@@ -878,16 +808,10 @@ export class Utils {
             });
         }
         return items;
-    } 
+    }
 
     static suggestModelSelection = async (choiceMsg: string, yesMsg: string, noMsg: string, app: Application) => {
         const shouldSelectModel = await Utils.showUserChoiceDialog(choiceMsg, "Select");
-        if (shouldSelectModel) {
-            app.llamaWebviewProvider.showEnvView();
-            vscode.window.showInformationMessage(yesMsg);
-        } else {
-            vscode.window.showErrorMessage(noMsg);
-        }
     }
 
     static removeFirstAndLastLinesIfBackticks = (input: string): string => {
@@ -908,7 +832,7 @@ export class Utils {
 
     static getTodosFilePath = () => {
         let filePath = "";
-        const TODO_FILE = '.llama-vscode-todos.md';
+        const TODO_FILE = '.llama-vscode-fim-todos.md';
         if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
             filePath = TODO_FILE;
         } else {
@@ -925,5 +849,14 @@ export class Utils {
         } else {
             return vscode.workspace.workspaceFolders[0].uri.fsPath;
         }
+    }
+
+    public static getRelativePath(filePath: string): string {
+        const workspaceFolder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(filePath));
+        if (workspaceFolder) {
+            return path.relative(workspaceFolder.uri.fsPath, filePath);
+        }
+        // Fallback to just the filename if not in a workspace
+        return path.basename(filePath);
     }
 }

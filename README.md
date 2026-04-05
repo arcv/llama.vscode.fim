@@ -1,52 +1,32 @@
-# llama.vscode
+# llama.vscode.fim
 
-Local LLM-assisted text completion, chat with AI and agentic coding extension for VS Code
-
-![image](https://github.com/user-attachments/assets/857acc41-0b6c-4899-8f92-3020208a21eb)
+Stripped-down version of the ggml-org/llama.vscode extension, focused exclusively on FIM (Fill-In-the-Middle) auto-completion.
 
 ---
 
-![llama vscode-swift0](https://github.com/user-attachments/assets/b19499d9-f50d-49d4-9dff-ff3e8ba23757)
-
 ## Features
 
-- Auto-suggest on input
+- Auto-suggest on input with configurable debounce delay
 - Accept a suggestion with `Tab`
 - Accept the first line of a suggestion with `Shift + Tab`
 - Accept the next word with `Ctrl/Cmd + Right`
 - Toggle the suggestion manually by pressing `Ctrl + L`
 - Control max text generation time
 - Configure scope of context around the cursor
-- Ring context with chunks from open and edited files and yanked text
-- [Supports very large contexts even on low-end hardware via smart context reuse](https://github.com/ggerganov/llama.cpp/pull/9787)
+- Ring context with chunks from open and edited files
 - Display performance stats
-- Llama Agent for agentic coding
-- Add/remove/export/import for models - completion, chat, embeddings and tools
-- Model selection - for completion, chat, embeddings and tools
-- Env (group of models) concept introduced. Selecting/Deselecting env selects/deselects all the models in it
-- Add/remove/export/import for env
-- Predefined models (including OpenAI gpt-oss 20B added as a local one) 
-- Predefined envs for different use cases - only completion, chat + completion, chat + agent, loccal full package (with gpt-oss 20B), etc.
-- MCP tools selection for the agent (from VS Code installed MCP Servers)
-- Search and download models from Huggingface directly from llama-vscode
+- Use your local or external model server that supports FIM
+- Toggle debug logging on/off via settings
 
 ## Installation
 
-### VS Code extension setup
-
-Install the [llama-vscode](https://marketplace.visualstudio.com/items?itemName=ggml-org.llama-vscode) extension from the VS Code extension marketplace:
-
-![image](https://github.com/user-attachments/assets/a5998b49-49c5-4623-b3a8-7100b72af27e)
-
-Note: also available at [Open VSX](https://open-vsx.org/extension/ggml-org/llama-vscode)
-
 ### `llama.cpp` setup
 
-Show llama-vscode menu by clicking on llama-vscode in the status bar or Ctrl+Shift+M and select "Install/Upgrade llama.cpp". This will install llama.cpp automatically for Mac and Windows. For Linux get the [latest binaries](https://github.com/ggerganov/llama.cpp/releases) and add the bin folder to the path.
+Open the llama-vscode-fim menu by clicking on the status bar indicator or pressing `Ctrl+Shift+M`, then select "Install/Upgrade llama.cpp". This will install llama.cpp automatically on Mac and Windows. On Linux, get the [latest binaries](https://github.com/ggerganov/llama.cpp/releases) and add the bin folder to your PATH.
 
-Once you have llama.cpp installed, you can select env for your needs from llama-vscode menu "Select/start env..."
+Once llama.cpp is installed, you can select and start a model from the menu.
 
-Below are some details how to install llama.cpp manually (if you prefer it).
+Below are some details on how to install llama.cpp manually (if you prefer it).
 
 #### Mac OS
 
@@ -62,7 +42,7 @@ winget install llama.cpp
 
 #### Any other OS
 
-Either use the [latest binaries](https://github.com/ggerganov/llama.cpp/releases) or [build llama.cpp from source](https://github.com/ggerganov/llama.cpp/blob/master/docs/build.md). For more information how to run the `llama.cpp` server, please refer to the [Wiki](https://github.com/ggml-org/llama.vscode/wiki).
+Either use the [latest binaries](https://github.com/ggerganov/llama.cpp/releases) or [build llama.cpp from source](https://github.com/ggerganov/llama.cpp/blob/master/docs/build.md). For more information on how to run the `llama.cpp` server, please refer to the [Wiki](https://github.com/ggml-org/llama.vscode/wiki).
 
 ### llama.cpp settings
 
@@ -110,51 +90,68 @@ llama-server \
 ```
 </details>
 
-You can use any other FIM-compatible model that your system can handle. By default, the models downloaded with the `-hf` flag are stored in:
+You can use any other FIM-compatible model that your system can handle. By default, models downloaded with the `-hf` flag are stored in:
 
 - Mac OS: `~/Library/Caches/llama.cpp/`
-- Linux: `~/.cache/llama.cpp`
+- Linux: `~/.cache/lllama.cpp`
 - Windows: `LOCALAPPDATA`
 
 ### Recommended LLMs
 
 The plugin requires FIM-compatible models: [HF collection](https://huggingface.co/collections/ggml-org/llamavim-6720fece33898ac10544ecf9)
 
-## Llama Agent
+## Configuration
 
-The extension includes Llama Agent
+Key settings available in VS Code Settings (`llama-vscode-fim` prefix):
 
-### Features
-- Llama Agent UI in Explorer view
-- Works with local models - gpt-oss 20B is the best choice for now
-- Could work with external models (for example from OpenRouter)
-- MCP Support - could use the tools from the MCP Servers, which are installed and started in VS Code
-- 9 internal tools available for use
-- custom_tool - returns the content of a file or a web page
-- custom_eval_tool - write your own tool in javascript (function with input and return value string)
-- Attach the selection to the context
-- Configure maximum loops for Llama Agent
+| Setting | Default | Description |
+|---|---|---|
+| `endpoint` | `http://127.0.0.1:8012` | URL of your llama.cpp server |
+| `ai_model` | `""` | Model name for the completion endpoint |
+| `debounce_ms` | `0` | Delay (ms) before requesting completion after typing stops |
+| `n_prefix` | `256` | Number of prefix lines sent as context |
+| `n_suffix` | `64` | Number of suffix lines sent as context |
+| `n_predict` | `128` | Max tokens to generate |
+| `max_parallel_completions` | `3` | Number of parallel completions (cycle with Alt+] / Alt+[) |
+| `debug_log_enabled` | `true` | Enable or disable debug log output |
+| `debug_log_level` | `1` (INFO) | Minimum log level: 0=DEBUG, 1=INFO, 2=WARN, 3=ERROR |
+| `debug_log_to_file` | `true` | Write logs to a file in the extension log directory |
+| `completion_models_list` | `[]` | List of configured completion models |
 
-### Usage
-1. Open Llama Agent with Ctrl+Shift+A or from llama-vscode menu "Show Llama Agent"
-2. Select Env with an agent if you haven't done it before. 
-3. Write a query and attach files with the @ button if needed
+## Keybindings
 
-More details(https://github.com/ggml-org/llama.vscode/wiki) 
+| Shortcut | Action |
+|---|---|
+| `Tab` | Accept suggestion |
+| `Shift + Tab` | Accept first line of suggestion |
+| `Ctrl + Right` | Accept first word of suggestion |
+| `Ctrl + L` | Trigger inline completion manually |
+| `Ctrl + Shift + L` | Trigger non-cached completion |
+| `Alt + ]` | Next suggestion |
+| `Alt + [` | Previous suggestion |
+| `Ctrl + Shift + M` | Open llama-vscode-fim menu |
+| `Ctrl + Shift + ,` | Copy chunks (debug) |
 
-## Examples
+## License
 
-Speculative FIMs running locally on a M2 Studio:
+MIT License
 
-https://github.com/user-attachments/assets/cab99b93-4712-40b4-9c8d-cf86e98d4482
+Copyright (c) 2026 llama.vscode.fim contributors
 
-## Implementation details
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-The extension aims to be very simple and lightweight and at the same time to provide high-quality and performant local FIM completions, even on consumer-grade hardware.
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-- The initial implementation was done by Ivaylo Gardev [@igardev](https://github.com/igardev) using the [llama.vim](https://github.com/ggml-org/llama.vim) plugin as a reference
-- Techincal description: https://github.com/ggerganov/llama.cpp/pull/9787
-
-## Other IDEs
-
-- Vim/Neovim: https://github.com/ggml-org/llama.vim
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

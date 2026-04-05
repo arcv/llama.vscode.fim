@@ -1,91 +1,87 @@
-import {Application} from "./application";
-import { LlamaResponse } from "./types";
-import vscode from "vscode";
+import * as vscode from 'vscode';
+import { Application } from './application';
+import { LlamaResponse, InfillResponseItem } from './types';
 
 export class Statusbar {
-    private app: Application
-    public llamaVscodeStatusBarItem:vscode.StatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
-    constructor(application: Application) {
-        this.app = application;
-    }
+    private app: Application;
+    statusBarItem: vscode.StatusBarItem = vscode.window.createStatusBarItem(
+        vscode.StatusBarAlignment.Right, 1000,
+    );
 
-    showTextInfo = (text: string | undefined) =>{
-        if (text == undefined ) this.llamaVscodeStatusBarItem.text = "llama-vscode";
-        else this.llamaVscodeStatusBarItem.text = "llama-vscode | " + text;
-    }
+    constructor(app: Application) { this.app = app; }
 
-    showInfo = (data: LlamaResponse | undefined) => {
-        if (data == undefined || data.content == undefined || data.content.trim() == "" ) {
-            if (this.app.configuration.show_info) {
-                this.llamaVscodeStatusBarItem.text = `llama-vscode | ${this.app.configuration.getUiText("no suggestion")} | r: ${this.app.extraContext.chunks.length} / ${this.app.configuration.ring_n_chunks}, e: ${this.app.extraContext.ringNEvict}, q: ${this.app.extraContext.queuedChunks.length} / ${this.app.configuration.MAX_QUEUED_CHUNKS} | t: ${Date.now() - this.app.extraContext.lastComplStartTime} ms `;
-            } else {
-                this.llamaVscodeStatusBarItem.text = `llama-vscode | ${this.app.configuration.getUiText("no suggestion")} | t: ${Date.now() - this.app.extraContext.lastComplStartTime} ms `;
-            }
-        } else {
-            if (this.app.configuration.show_info) {
-                this.llamaVscodeStatusBarItem.text = `llama-vscode | c: ${data.tokens_cached} / ${data.generation_settings.n_ctx ?? 0}, r: ${this.app.extraContext.chunks.length} / ${this.app.configuration.ring_n_chunks}, e: ${this.app.extraContext.ringNEvict}, q: ${this.app.extraContext.queuedChunks.length} / ${this.app.configuration.MAX_QUEUED_CHUNKS} | p: ${data.timings?.prompt_n} (${data.timings?.prompt_ms?.toFixed(2)} ms, ${data.timings?.prompt_per_second?.toFixed(2)} t/s) | g: ${data.timings?.predicted_n} (${data.timings?.predicted_ms?.toFixed(2)} ms, ${data.timings?.predicted_per_second?.toFixed(2)} t/s) | t: ${Date.now() - this.app.extraContext.lastComplStartTime} ms `;
-            } else {
-                this.llamaVscodeStatusBarItem.text = `llama-vscode | t: ${Date.now() - this.app.extraContext.lastComplStartTime} ms `;
-            }
-        }
-        this.llamaVscodeStatusBarItem.show();
-    }
-
-    showCachedInfo = () => {
-        if (this.app.configuration.show_info) {
-            this.llamaVscodeStatusBarItem.text = `llama-vscode | C: ${this.app.lruResultCache.size()} / ${this.app.configuration.max_cache_keys} | t: ${Date.now() - this.app.extraContext.lastComplStartTime} ms`;
-        }else {
-            this.llamaVscodeStatusBarItem.text = `llama-vscode | t: ${Date.now() - this.app.extraContext.lastComplStartTime} ms`;
-        }
-        this.llamaVscodeStatusBarItem.show();
-    }
-
-    showTimeInfo = (startTime: number) => {
-        this.llamaVscodeStatusBarItem.text = `llama-vscode | t: ${Date.now() - startTime} ms`;
-        this.llamaVscodeStatusBarItem.show();
-    }
-
-    showThinkingInfo = () => {
-        this.llamaVscodeStatusBarItem.text = `llama-vscode | ${this.app.configuration.getUiText("thinking...")}`;
-        this.llamaVscodeStatusBarItem.show();
-    }
-
-    initializeStatusBar = () => {
-        this.llamaVscodeStatusBarItem = vscode.window.createStatusBarItem(
-            vscode.StatusBarAlignment.Right,
-            1000
+    initializeStatusBar() {
+        this.statusBarItem = vscode.window.createStatusBarItem(
+            vscode.StatusBarAlignment.Right, 1000,
         );
-        this.llamaVscodeStatusBarItem.command = 'llama-vscode.showMenu';
-        this.llamaVscodeStatusBarItem.tooltip = "Show llama-vscode menu (Ctrl+Shift+M)";
+        this.statusBarItem.command = 'llama-vscode-fim.showMenu';
+        this.statusBarItem.tooltip = 'Show llama-vscode-fim menu (Ctrl+Shift+M)';
         this.updateStatusBarText();
-        this.llamaVscodeStatusBarItem.show();
+        this.statusBarItem.show();
     }
 
-    updateStatusBarText = () => {
-        const editor = vscode.window.activeTextEditor;
-        const currentLanguage = editor?.document.languageId;
-        const isEnabled = this.app.configuration.enabled;
-        const isLanguageEnabled = currentLanguage ? this.app.configuration.isCompletionEnabled(editor.document) : true;
+    registerEventListeners(ctx: vscode.ExtensionContext) {
+        ctx.subscriptions.push(
+            vscode.workspace.onDidChangeConfiguration(() => this.updateStatusBarText()),
+            vscode.window.onDidChangeActiveTextEditor(() => this.updateStatusBarText()),
+        );
+    }
 
-        if (!isEnabled) {
-            this.llamaVscodeStatusBarItem.text = "$(x) llama.vscode";
-        } else if (currentLanguage && !isLanguageEnabled) {
-            this.llamaVscodeStatusBarItem.text = `$(x) llama.vscode (${currentLanguage})`;
+    updateStatusBarText() {
+        const enabled = this.app.configuration.enabled;
+
+        if (!enabled) {
+            this.statusBarItem.text = '$(x) llama.vscode.fim';
         } else {
-            this.llamaVscodeStatusBarItem.text = "$(check) llama.vscode";
+            this.statusBarItem.text = '$(check) llama.vscode.fim';
         }
     }
 
-    registerEventListeners = (context: vscode.ExtensionContext) => {
-        context.subscriptions.push(
-            vscode.workspace.onDidChangeConfiguration(e => {
-                if (e.affectsConfiguration('llama-vscode')) {
-                    this.updateStatusBarText();
-                }
-            }),
-            vscode.window.onDidChangeActiveTextEditor(() => {
-                this.updateStatusBarText();
-            })
-        );
+    showThinkingInfo() {
+        this.statusBarItem.text = `llama-vscode-fim | 'thinking...'`;
+        this.statusBarItem.show();
+    }
+
+    showInfo(data: LlamaResponse | InfillResponseItem | InfillResponseItem[] | undefined) {
+        const t = Date.now() - this.app.extraContext.lastComplStartTime;
+        const getContent = (): string => {
+            if (!data) return '';
+            if (Array.isArray(data)) return data[0]?.content ?? '';
+            return data.content ?? '';
+        };
+        const content = getContent();
+        if (!content.trim()) {
+            this.statusBarItem.text = this.app.configuration.show_info
+                ? `llama-vscode-fim | 'no suggestion' | r: ${this.app.extraContext.chunks.length}/${this.app.configuration.ring_n_chunks} | t: ${t} ms`
+                : `llama-vscode-fim | t: ${t} ms`;
+        } else {
+            let tokens: number | undefined;
+            let tps: string | undefined;
+            const d = data!;
+            if (Array.isArray(d)) {
+                tokens = d[0]?.tokens_predicted;
+            } else if ('timings' in d) {
+                tokens = d.timings?.predicted_n;
+                tps = d.timings?.predicted_per_second?.toFixed(1);
+            } else {
+                tokens = (d as InfillResponseItem).tokens_predicted;
+            }
+            this.statusBarItem.text = this.app.configuration.show_info
+                ? `llama-vscode-fim | g: ${tokens} (${tps} t/s) | t: ${t} ms`
+                : `llama-vscode-fim | t: ${t} ms`;
+        }
+        this.statusBarItem.show();
+    }
+
+    showCachedInfo() {
+        const t = Date.now() - this.app.extraContext.lastComplStartTime;
+        this.statusBarItem.text = this.app.configuration.show_info
+            ? `llama-vscode | C: ${this.app.lruResultCache.size()}/${this.app.configuration.max_cache_keys} | t: ${t} ms`
+            : `llama-vscode | t: ${t} ms`;
+        this.statusBarItem.show();
+    }
+
+    showTextInfo(text: string | undefined) {
+        this.statusBarItem.text = text ? `llama-vscode-fim | ${text}` : 'llama-vscode-fim';
     }
 }

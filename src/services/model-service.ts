@@ -1,471 +1,236 @@
-import * as vscode from "vscode";
-import { QuickPickItem } from "vscode";
-import { Application } from "../application";
-import { IAddStrategy, LlmModel, ModelTypeDetails } from "../types";
-import { Utils } from "../utils";
-import { ModelType, UI_TEXT_KEYS, MODEL_TYPE_CONFIG } from "../constants";
-import * as path from "path";
-import * as fs from "fs";
-import { Configuration } from "../configuration";
-import { PREDEFINED_LISTS } from "../lists";
+import * as vscode from 'vscode';
+import * as path from 'path';
+import * as fs from 'fs';
+import { Application } from '../application';
+import { IAddStrategy, LlmModel, ModelTypeDetails } from '../types';
+import { ModelType, MODEL_TYPE_CONFIG, UI_TEXT_KEYS, SETTING_NAME_FOR_LIST } from '../constants';
+import { Utils } from '../utils';
+import { log } from '../debug-logger';
 
 export class ModelService {
-    
     private app: Application;
     private strategies: Record<string, IAddStrategy>;
 
     constructor(app: Application) {
         this.app = app;
         this.strategies = {
-            local: this.app.localModelStrategy,
-            external: this.app.externalModelStrategy,
-            hf: this.app.hfModelStrategy,
-            oaiComp: this.app.openAiCompModelStrategy
+            local: app.localModelStrategy,
+            external: app.externalModelStrategy,
         };
     }
 
-    getActions(type: ModelType): vscode.QuickPickItem[] {
-        const keys = {
-            [ModelType.Completion]: [
-                UI_TEXT_KEYS.selectStartCompletionModel,
-                UI_TEXT_KEYS.deselectStopCompletionModel,
-                UI_TEXT_KEYS.addLocalCompletionModel,
-                UI_TEXT_KEYS.addExternalCompletionModel,
-                UI_TEXT_KEYS.addCompletionModelFromHuggingface,
-                UI_TEXT_KEYS.addCompletionOpenAiCompModel,
-                UI_TEXT_KEYS.viewCompletionModelDetails,
-                UI_TEXT_KEYS.deleteCompletionModel,
-                UI_TEXT_KEYS.exportCompletionModel,
-                UI_TEXT_KEYS.importCompletionModel,
-            ],
-            [ModelType.Chat]: [
-                UI_TEXT_KEYS.selectStartChatModel,
-                UI_TEXT_KEYS.deselectStopChatModel,
-                UI_TEXT_KEYS.addLocalChatModel,
-                UI_TEXT_KEYS.addExternalChatModel,
-                UI_TEXT_KEYS.addChatModelFromHuggingface,
-                UI_TEXT_KEYS.addChatOpenAiCompModel,
-                UI_TEXT_KEYS.viewChatModelDetails,
-                UI_TEXT_KEYS.deleteChatModel,
-                UI_TEXT_KEYS.exportChatModel,
-                UI_TEXT_KEYS.importChatModel,
-            ],
-            [ModelType.Embeddings]: [
-                UI_TEXT_KEYS.selectStartEmbeddingsModel,
-                UI_TEXT_KEYS.deselectStopEmbeddingsModel,
-                UI_TEXT_KEYS.addLocalEmbeddingsModel,
-                UI_TEXT_KEYS.addExternalEmbeddingsModel,
-                UI_TEXT_KEYS.addEmbeddingsModelFromHuggingface,
-                UI_TEXT_KEYS.addEmbeddingsOpenAiCompModel,
-                UI_TEXT_KEYS.viewEmbeddingsModelDetails,
-                UI_TEXT_KEYS.deleteEmbeddingsModel,
-                UI_TEXT_KEYS.exportEmbeddingsModel,
-                UI_TEXT_KEYS.importEmbeddingsModel,
-            ],
-            [ModelType.Tools]: [
-                UI_TEXT_KEYS.selectStartToolsModel,
-                UI_TEXT_KEYS.deselectStopToolsModel,
-                UI_TEXT_KEYS.addLocalToolsModel,
-                UI_TEXT_KEYS.addExternalToolsModel,
-                UI_TEXT_KEYS.addToolsModelFromHuggingface,
-                UI_TEXT_KEYS.addToolsOpenAiCompModel,
-                UI_TEXT_KEYS.viewToolsModelDetails,
-                UI_TEXT_KEYS.deleteToolsModel,
-                UI_TEXT_KEYS.exportToolsModel,
-                UI_TEXT_KEYS.importToolsModel,
-            ],
-        };
+    // ── Action list for the menu ──────────────────────────────────────────
+    getActions(): vscode.QuickPickItem[] {
+        return [
+            { label: this.t(UI_TEXT_KEYS.selectStartCompletionModel) },
+            { label: this.t(UI_TEXT_KEYS.deselectStopCompletionModel) },
+            { label: this.t(UI_TEXT_KEYS.addLocalCompletionModel) },
+            { label: this.t(UI_TEXT_KEYS.addExternalCompletionModel) },
+            { label: this.t(UI_TEXT_KEYS.viewCompletionModelDetails) },
+            { label: this.t(UI_TEXT_KEYS.deleteCompletionModel) },
+            { label: this.t(UI_TEXT_KEYS.exportCompletionModel) },
+            { label: this.t(UI_TEXT_KEYS.importCompletionModel) },
+        ];
+    }
 
-        const modelKeys = keys[type] || [];
-        return modelKeys.map(key => ({
-            label: this.app.configuration.getUiText(key) ?? ""
+    async processModelActions() {
+        const actions = this.getActions();
+        const sel = await vscode.window.showQuickPick(actions);
+        if (!sel) return;
+        await this.processAction(sel.label);
+    }
+
+    async processAction(label: string) {
+        const d = this.getTypeDetails();
+        switch (label) {
+            case this.t(UI_TEXT_KEYS.selectStartCompletionModel):
+                await this.selectModel(d.modelsList); break;
+            case this.t(UI_TEXT_KEYS.deselectStopCompletionModel):
+                await this.deselectAndClearModel(); break;
+            case this.t(UI_TEXT_KEYS.addLocalCompletionModel):
+                await this.addModel('local'); break;
+            case this.t(UI_TEXT_KEYS.addExternalCompletionModel):
+                await this.addModel('external'); break;
+            case this.t(UI_TEXT_KEYS.viewCompletionModelDetails):
+                await this.viewModel(d.modelsList); break;
+            case this.t(UI_TEXT_KEYS.deleteCompletionModel):
+                await this.deleteModel(d.modelsList, d.modelsListSettingName); break;
+            case this.t(UI_TEXT_KEYS.exportCompletionModel):
+                await this.exportModel(d.modelsList); break;
+            case this.t(UI_TEXT_KEYS.importCompletionModel):
+                await this.importModel(d.modelsList, d.modelsListSettingName); break;
+        }
+    }
+
+    // ── Select & start ────────────────────────────────────────────────────
+    async selectModel(modelsList: LlmModel[]): Promise<LlmModel | undefined> {
+        const items: vscode.QuickPickItem[] = modelsList.map((m, i) => ({
+            label: `${i + 1}. ${m.name}`,
+            description: m.localStartCommand,
+            detail: m.localStartCommand
+                ? 'Selects, downloads if needed, and starts a llama-server with this model.'
+                : 'Selects this external model.',
         }));
+        items.push({ label: `${items.length + 1}. Use settings (endpoint + launch_completion)` });
+
+        const sel = await vscode.window.showQuickPick(items);
+        if (!sel) return undefined;
+
+        const idx = parseInt(sel.label.split('. ')[0], 10) - 1;
+        let model: LlmModel;
+        if (idx === modelsList.length) {
+            model = {
+                name: 'Use settings',
+                endpoint: this.app.configuration.endpoint,
+                localStartCommand: this.app.configuration.launch_completion,
+                aiModel: "",
+            };
+        } else {
+            model = modelsList[idx];
+        }
+
+        await this.selectStartModel(model);
+        return model;
     }
 
-    public async processModelActions(modelType: ModelType) {
-        let modelActions: vscode.QuickPickItem[] = this.getActions(modelType);
-        let actionSelected = await vscode.window.showQuickPick(modelActions);
-        if (actionSelected) {
-            await this.processActions(modelType, actionSelected);
+    async selectStartModel(model: LlmModel) {
+        log.info('ModelService', `selectStartModel: ${model.name}`);
+        this.app.setSelectedModel(ModelType.Completion, model);
+        const d = this.getTypeDetails();
+        await this.app.persistence.setValue('selectedComplModel', model);
+    }
+
+    async deselectAndClearModel() {
+        log.info('ModelService', 'deselectAndClearModel');
+        const d = this.getTypeDetails();
+        this.app.setSelectedModel(ModelType.Completion, Application.emptyModel);
+        this.app.setModelState(ModelType.Completion, '');
+    }
+
+    // ── Add ───────────────────────────────────────────────────────────────
+    async addModel(kind: 'local' | 'external') {
+        const d = this.getTypeDetails();
+        await this.strategies[kind].add(d);
+    }
+
+    // ── Delete ────────────────────────────────────────────────────────────
+    async deleteModel(list: LlmModel[], settingName: string) {
+        const items = list.map((m, i) => ({ label: `${i + 1}. ${m.name}` }));
+        const sel = await vscode.window.showQuickPick(items);
+        if (!sel) return;
+        const idx = parseInt(sel.label.split('. ')[0], 10) - 1;
+        const ok = await Utils.confirmAction('Delete this model?', this.getDetails(list[idx]));
+        if (ok) {
+            list.splice(idx, 1);
+            this.app.configuration.updateConfigValue(settingName, list);
+            vscode.window.showInformationMessage('Model deleted.');
+            log.info('ModelService', `deleted model idx=${idx}`);
         }
     }
 
-    async processActions(type: ModelType, selected: vscode.QuickPickItem): Promise<void> {
-        const details = this.getTypeDetails(type);
-        const actionMap = this.getActionMap(type);
-        const action = Object.keys(actionMap).find(key => selected.label === actionMap[key]);
-        if (!action) return;
-
-        switch (action) {
-            case 'select':
-                await this.selectModel(type, details.modelsList);
-                break;
-            case 'deselect':
-                await this.deselectModel(type, details);
-                break;
-            case 'addLocal':
-                await this.addModel(type, 'local');
-                break;
-            case 'addExternal':
-                await this.addModel(type, 'external');
-                break;
-            case 'addHf':
-                await this.addModel(type, 'hf');
-                break;
-            case 'addOaiComp':
-                await this.addModel(type, 'oaiComp');
-                break;
-            case 'delete':
-                await this.deleteModel(details.modelsList, details.modelsListSettingName);
-                break;
-            case 'view':
-                await this.viewModel(type, details.modelsList);
-                break;
-            case 'export':
-                await this.exportModel(type, details.modelsList);
-                break;
-            case 'import':
-                await this.importModel(details.modelsList, details.modelsListSettingName);
-                break;
-        }
+    // ── View ──────────────────────────────────────────────────────────────
+    async viewModel(list: LlmModel[]) {
+        const items = list.map((m, i) => ({ label: `${i + 1}. ${m.name}` }));
+        const sel = await vscode.window.showQuickPick(items);
+        if (!sel) return;
+        const idx = parseInt(sel.label.split('. ')[0], 10) - 1;
+        await this.showModelDetails(list[idx]);
     }
 
-    private getActionMap(type: ModelType): Record<string, string> {
-        const typeStr = type.charAt(0).toUpperCase() + type.slice(1);
-        return {
-            select: this.app.configuration.getUiText(UI_TEXT_KEYS[`selectStart${typeStr}Model` as keyof typeof UI_TEXT_KEYS]) ?? "",
-            deselect: this.app.configuration.getUiText(UI_TEXT_KEYS[`deselectStop${typeStr}Model` as keyof typeof UI_TEXT_KEYS]) ?? "",
-            addLocal: this.app.configuration.getUiText(UI_TEXT_KEYS[`addLocal${typeStr}Model` as keyof typeof UI_TEXT_KEYS]) ?? "",
-            addExternal: this.app.configuration.getUiText(UI_TEXT_KEYS[`addExternal${typeStr}Model` as keyof typeof UI_TEXT_KEYS]) ?? "",
-            addHf: this.app.configuration.getUiText(UI_TEXT_KEYS[`add${typeStr}ModelFromHuggingface` as keyof typeof UI_TEXT_KEYS]) ?? "",
-            addOaiComp: this.app.configuration.getUiText(UI_TEXT_KEYS[`add${typeStr}OpenAiCompModel` as keyof typeof UI_TEXT_KEYS]) ?? "",
-            view: this.app.configuration.getUiText(UI_TEXT_KEYS[`view${typeStr}ModelDetails` as keyof typeof UI_TEXT_KEYS]) ?? "",
-            delete: this.app.configuration.getUiText(UI_TEXT_KEYS[`delete${typeStr}Model` as keyof typeof UI_TEXT_KEYS]) ?? "",
-            export: this.app.configuration.getUiText(UI_TEXT_KEYS[`export${typeStr}Model` as keyof typeof UI_TEXT_KEYS]) ?? "",
-            import: this.app.configuration.getUiText(UI_TEXT_KEYS[`import${typeStr}Model` as keyof typeof UI_TEXT_KEYS]) ?? "",
-        };
+    async showModelDetails(model: LlmModel) {
+        await Utils.showOkDialog('Model details:\n\n' + this.getDetails(model));
     }
 
-    selectModel = async (type: ModelType, modelsList: LlmModel[], shoudStartModel:boolean = true): Promise<LlmModel | undefined> => {
-        const details = this.getTypeDetails(type);
-        let allModels = modelsList.concat(PREDEFINED_LISTS.get(type) as LlmModel[])
-        let modelsItems: QuickPickItem[] = this.getModels(modelsList, "", true);
-        modelsItems = modelsItems.concat(this.getModels(PREDEFINED_LISTS.get(type) as LlmModel[], "(predefined) ", true, modelsList.length));
-
-        const launchToEndpoint = new Map([
-            ["launch_completion", "endpoint"],
-            ["launch_chat", "endpoint_chat"],
-            ["launch_embeddings", "endpoint_embeddings"],
-            ["launch_tools", "endpoint_tools"]
-        ]);
-        
-        modelsItems.push({ label: (modelsItems.length + 1) + ". Use settings", description: "" });
-
-        const selectedModelItem = await vscode.window.showQuickPick(modelsItems);
-        if (selectedModelItem) {
-            let model: LlmModel;
-            if (parseInt(selectedModelItem.label.split(". ")[0], 10) == modelsItems.length) {
-                // Use settings
-                const aiModel = this.app.configuration.ai_model;
-                const endpoint = this.app.configuration[launchToEndpoint.get(details.launchSettingName) as keyof Configuration] as string;
-                const localStartCommand = this.app.configuration[details.launchSettingName as keyof Configuration] as string
-                model = {
-                    name: "Use settings",
-                    aiModel: aiModel,
-                    isKeyRequired: false,
-                    endpoint: endpoint,
-                    localStartCommand: localStartCommand
-                };
-            } else {
-                const index = parseInt(selectedModelItem.label.split(". ")[0], 10) - 1;
-                model = allModels[index];
-            }
-
-            if (shoudStartModel) await this.selectStartModel(model, type, details);
-
-            return model;
-        }
-        return undefined
+    // ── Export ────────────────────────────────────────────────────────────
+    async exportModel(list: LlmModel[]) {
+        const items = list.map((m, i) => ({ label: `${i + 1}. ${m.name}` }));
+        const sel = await vscode.window.showQuickPick(items);
+        if (!sel) return;
+        const idx = parseInt(sel.label.split('. ')[0], 10) - 1;
+        const model = list[idx];
+        const ok = await Utils.showYesNoDialog(`Export model?\n\n${this.getDetails(model)}`);
+        if (!ok) return;
+        const uri = await vscode.window.showSaveDialog({
+            defaultUri: vscode.Uri.file(path.join(vscode.workspace.rootPath ?? '', `${model.name}.json`)),
+            filters: { 'Model Files': ['json'] },
+        });
+        if (!uri) return;
+        fs.writeFileSync(uri.fsPath, JSON.stringify(model, null, 2), 'utf8');
+        vscode.window.showInformationMessage('Model exported.');
+        log.info('ModelService', `exported model to ${uri.fsPath}`);
     }
 
-    public async selectStartModel(model: LlmModel, type: ModelType, details: ModelTypeDetails) {
-        await this.addApiKey(model);
-        this.app.setSelectedModel(type, model);
-
-        await details.killCmd();
-        if (model.localStartCommand) await details.shellCmd(this.sanitizeCommand(model.localStartCommand ?? ""));
-        await this.app.persistence.setValue(this.getSelectedProp(type), model);
-    }
-
-    public async addModel(type: ModelType, kind: 'local' | 'external' | 'hf' | 'oaiComp'): Promise<void> {
-        const details = this.getTypeDetails(type);
-        const strategy = this.strategies[kind];
-        if (strategy) {
-            await strategy.add(details);
-        }
-    }
-
-    async deleteModel(modelsList: LlmModel[], settingName: string): Promise<void> {
-        const modelsItems: QuickPickItem[] = this.getModels(modelsList, "", false);
-        const modelItem = await vscode.window.showQuickPick(modelsItems);
-        if (modelItem) {
-            let modelIndex = parseInt(modelItem.label.split(". ")[0], 10) - 1;
-            const shouldDeleteModel = await Utils.confirmAction("Are you sure you want to delete the model below?",
-                this.getDetails(modelsList[modelIndex])
-            );
-            if (shouldDeleteModel) {
-                modelsList.splice(modelIndex, 1);
-                this.app.configuration.updateConfigValue(settingName, modelsList);
-                vscode.window.showInformationMessage("The model is deleted.")
-            }
-        }
-    }
-
-    public async viewModel(type: ModelType , modelsList: LlmModel[]): Promise<void> {
-        let allModels = modelsList.concat(PREDEFINED_LISTS.get(type) as LlmModel[])
-        let modelsItems: QuickPickItem[] = this.getModels(modelsList, "", false);
-        modelsItems = modelsItems.concat(this.getModels(PREDEFINED_LISTS.get(type) as LlmModel[], "(predefined) ", false, modelsList.length));
-        let modelItem = await vscode.window.showQuickPick(modelsItems);
-        if (modelItem) {
-            let modelIndex = parseInt(modelItem.label.split(". ")[0], 10) - 1;
-            let selectedModel = allModels[modelIndex];
-            await this.showModelDetails(selectedModel);
-        }
-    }
-
-    public async showModelDetails(model: LlmModel): Promise<void> {
-        await Utils.showOkDialog("Model details: \n\n" + this.getDetails(model));
-    }
-
-    async exportModel(type: ModelType, modelsList: LlmModel[]): Promise<void> {
-        let allModels = modelsList.concat(PREDEFINED_LISTS.get(type) as LlmModel[])
-        let modelsItems: QuickPickItem[] = this.getModels(modelsList, "", false);
-        modelsItems = modelsItems.concat(this.getModels(PREDEFINED_LISTS.get(type) as LlmModel[], "(predefined) ", false, modelsList.length));
-        let modelItem = await vscode.window.showQuickPick(modelsItems);
-        if (modelItem) {
-            let modelIndex = parseInt(modelItem.label.split(". ")[0], 10) - 1;
-            let selectedModel = allModels[modelIndex];
-            let shouldExport = await Utils.showYesNoDialog("Do you want to export the following model? \n\n" +
-                this.getDetails(selectedModel)
-            );
-
-            if (shouldExport) {
-                const uri = await vscode.window.showSaveDialog({
-                    defaultUri: vscode.Uri.file(path.join(vscode.workspace.rootPath || '', selectedModel.name + '.json')),
-                    filters: {
-                        'Model Files': ['json'],
-                        'All Files': ['*']
-                    },
-                    saveLabel: 'Export Model'
-                });
-
-                if (uri) {
-                    const jsonContent = JSON.stringify(selectedModel, null, 2);
-                    fs.writeFileSync(uri.fsPath, jsonContent, 'utf8');
-                    vscode.window.showInformationMessage("Model is saved.")
-                }
-            }
-        }
-    }
-
-    async importModel(modelList: LlmModel[], settingName: string): Promise<void> {
+    // ── Import ────────────────────────────────────────────────────────────
+    async importModel(list: LlmModel[], settingName: string) {
         const uris = await vscode.window.showOpenDialog({
             canSelectMany: false,
-            openLabel: 'Import Model',
-            filters: {
-                'Model Files': ['json'],
-                'All Files': ['*']
-            },
+            filters: { 'Model Files': ['json'] },
         });
-
-        if (!uris || uris.length === 0) {
-            return;
-        }
-
-        const filePath = uris[0].fsPath;
-
-        const fileContent = fs.readFileSync(filePath, 'utf8');
-        const newModel = JSON.parse(fileContent);
-        // Sanitize imported model
-        if (newModel.name) newModel.name = this.sanitizeInput(newModel.name);
-        if (newModel.localStartCommand) newModel.localStartCommand = this.sanitizeCommand(newModel.localStartCommand);
-        if (newModel.endpoint) newModel.endpoint = this.sanitizeInput(newModel.endpoint);
-        if (newModel.aiModel) newModel.aiModel = this.sanitizeInput(newModel.aiModel);
-
-        const modelDetails = this.getDetails(newModel);
-        const shouldAddModel = await Utils.confirmAction("A new model will be added. Do you want to add the model?", modelDetails);
-
-        if (shouldAddModel) {
-            modelList.push(newModel);
-            this.app.configuration.updateConfigValue(settingName, modelList);
-            vscode.window.showInformationMessage("The model is added.");
-        }
-        vscode.window.showInformationMessage("Model imported: " + newModel.name);
-    }
-
-    public async deselectModel(type: ModelType, details: ModelTypeDetails): Promise<void> {
-        await details.killCmd();
-        this.clearModel(type);
-    }
-
-    getDetails(model: LlmModel): string {
-        return "name: " + model.name +
-            "\nlocal start command: " + model.localStartCommand +
-            "\nendpoint: " + model.endpoint +
-            "\nmodel name for provider: " + model.aiModel +
-            "\napi key required: " + model.isKeyRequired;
-    }
-
-    private getModels(models: LlmModel[], prefix: string, hasDetails: boolean, lastModelNumber: number = 0): QuickPickItem[] {
-        const modelsItems: QuickPickItem[] = [];
-        let i = lastModelNumber;
-        for (let model of models) {
-            i++;
-            if (hasDetails) {
-                modelsItems.push({
-                    label: i + ". " + prefix + model.name,
-                    description: model.localStartCommand,
-                    detail: "Selects the model" + (model.localStartCommand ? ", downloads the model (if not yet done) and starts a llama-server with it." : "")
-                });
-            } else {
-                modelsItems.push({
-                    label: i + ". " + prefix + model.name,
-                    description: model.localStartCommand
-                })
-            }
-        }
-        return modelsItems;
-    }
-
-    public getTypeDetails(type: ModelType): ModelTypeDetails {
-        const config = MODEL_TYPE_CONFIG[type];
-        return {
-            modelsList: (this.app.configuration as any)[config.settingName],
-            modelsListSettingName: config.settingName,
-            newModelPort: (this.app.configuration as any)[config.portSetting],
-            newModelHost: (this.app.configuration as any)[config.hostSetting],
-            selModelPropName: config.propName,
-            launchSettingName: config.launchSetting,
-            killCmd: (this.app.llamaServer as any)[config.killCmdName],
-            shellCmd: (this.app.llamaServer as any)[config.shellCmdName]
-        };
-    }
-
-    private getSelectedProp(type: ModelType): string {
-        const propMap = {
-            [ModelType.Completion]: MODEL_TYPE_CONFIG[ModelType.Completion].propName,
-            [ModelType.Chat]: MODEL_TYPE_CONFIG[ModelType.Chat].propName,
-            [ModelType.Embeddings]: MODEL_TYPE_CONFIG[ModelType.Embeddings].propName,
-            [ModelType.Tools]: MODEL_TYPE_CONFIG[ModelType.Tools].propName
-        };
-        return propMap[type] || '';
-    }
-
-    public async addApiKey(model: LlmModel): Promise<void> {
-        if (model.isKeyRequired) {
-            const apiKey = this.app.persistence.getApiKey(model.endpoint ?? "");
-            if (!apiKey) {
-                let result = await vscode.window.showInputBox({
-                    placeHolder: 'Enter your api key for ' + model.endpoint,
-                    prompt: 'your api key for ' + model.endpoint,
-                    value: ''
-                });
-                result = this.sanitizeInput(result || '');
-                if (result) {
-                    this.app.persistence.setApiKey(model.endpoint ?? "", result);
-                    vscode.window.showInformationMessage("Your API key for " + model.endpoint + " was saved.")
-                }
-            }
+        if (!uris?.length) return;
+        const raw = JSON.parse(fs.readFileSync(uris[0].fsPath, 'utf8')) as LlmModel;
+        raw.name = this.sanitizeInput(raw.name ?? '');
+        raw.localStartCommand = this.sanitizeCommand(raw.localStartCommand ?? '');
+        raw.endpoint = this.sanitizeInput(raw.endpoint ?? '');
+        raw.aiModel = this.sanitizeInput(raw.aiModel ?? '');
+        const ok = await Utils.confirmAction('Add imported model?', this.getDetails(raw));
+        if (ok) {
+            list.push(raw);
+            this.app.configuration.updateConfigValue(settingName, list);
+            vscode.window.showInformationMessage(`Model imported: ${raw.name}`);
+            log.info('ModelService', `imported model: ${raw.name}`);
         }
     }
 
-    sanitizeCommand = (command: string): string => {
-        if (!command) return '';
-        // TODO Consider escaping some chars: return command.trim().replace(/[`#$\<>\?\\|!{}()[\]^"]/g, '\\$&');
-        return command.trim();
-    }
-
-    public sanitizeInput(input: string): string {
-        return input ? input.trim() : '';
-    }
-
-    clearModel = (type: ModelType) => {
-        this.app.setSelectedModel(type, Application.emptyModel);
-        this.app.setModelState(type, "");
-        this.app.llamaWebviewProvider.updateLlamaView();
-    }
-    
-    public async deselectAndClearModel(modelType: ModelType) {
-        await this.deselectModel(modelType, this.getTypeDetails(modelType));
-        this.clearModel(modelType);
-        this.app.llamaWebviewProvider.updateLlamaView();
-    }  
-    
-    public async selectAndSetModel(modelType: ModelType, modelsList: LlmModel[]) {
-        let model = await this.app.modelService.selectModel(modelType, modelsList);
-        this.app.setSelectedModel(modelType, model);
-    }
-
-    public async selectAgentModel(modelType: ModelType, modelsList: LlmModel[]) {
-        let model = await this.app.modelService.selectModel(modelType, modelsList, false);
-        this.app.setAgentModel(model);
-    }
-
-    public getEmptyModel(): LlmModel {
-        return Application.emptyModel
-    }
-
-    public async checkForToolsModel() {
-        let toolsModel = this.app.getToolsModel();
-        let targetUrl = this.app.configuration.endpoint_tools ? this.app.configuration.endpoint_tools + "/" : "";
-        if (toolsModel && toolsModel.endpoint) {
-            const toolsEndpoint = Utils.trimTrailingSlash(toolsModel.endpoint);
-            targetUrl = toolsEndpoint ? toolsEndpoint + "/" : "";
+    // ── Health check ──────────────────────────────────────────────────────
+    async checkModelHealth() {
+        const model = this.app.getComplModel();
+        const state = await this.app.llamaServer.checkHealth(model);
+        if (state.toLowerCase() === 'ok' || state.toLowerCase() === 'healthy') {
+            vscode.window.showInformationMessage('Completion model health: OK');
+        } else {
+            vscode.window.showErrorMessage(`Completion model health: ${state}`);
         }
-        if (!targetUrl) {
-            await Utils.suggestModelSelection(
-                "Select a tools model or an env with tools model to use Llama Agent.",
-                "After the tools model is loaded, try again opening llama agent.",
-                "No endpoint for the tools model. Select an env with tools model or enter the endpoint of a running llama.cpp server with tools model in setting endpoint_tools.",
-                this.app
-            );
-
-            return false;
-        }
-        else return true;
+        this.app.setModelState(ModelType.Completion, state);
+        log.info('ModelService', `health check result: ${state}`);
     }
 
     periodicModelHealthUpdate = async () => {
-        if (this.app.configuration.health_check_interval_s > 0) {
-            if (this.app.configuration.health_check_compl_enabled  && this.app.isComplModelSelected()) {
-                await this.updateModelState(ModelType.Completion);
+        if (
+            this.app.configuration.health_check_compl_enabled &&
+            this.app.isComplModelSelected()
+        ) {
+            const state = await this.app.llamaServer.checkHealth(this.app.getComplModel());
+            const prev = this.app.getModelState(ModelType.Completion);
+            if ((prev === '' || prev === 'ok' || prev === 'healthy') &&
+                state !== 'ok' && state !== 'healthy') {
+                vscode.window.showErrorMessage(`Completion model health error: ${state}`);
+                log.warn('ModelService', `health degraded: ${state}`);
             }
-            if (this.app.configuration.health_check_chat_enabled  && this.app.isChatModelSelected()) {
-                await this.updateModelState(ModelType.Chat);
-            }
-            if (this.app.configuration.health_check_embs_enabled  && this.app.isEmbeddingsModelSelected()) {
-                await this.updateModelState(ModelType.Embeddings);
-            }
-            if (this.app.configuration.health_check_tools_enabled  && this.app.isToolsModelSelected()) {
-                await this.updateModelState(ModelType.Tools);
-            }
+            this.app.setModelState(ModelType.Completion, state.slice(0, 150));
         }
+    };
+
+    // ── Utilities ─────────────────────────────────────────────────────────
+    getTypeDetails(): ModelTypeDetails {
+        const cfg = MODEL_TYPE_CONFIG[ModelType.Completion];
+        return {
+            modelsList: this.app.configuration.completion_models_list,
+            modelsListSettingName: cfg.settingName,
+            newModelPort: this.app.configuration.new_completion_model_port,
+            newModelHost: this.app.configuration.new_completion_model_host,
+            selModelPropName: cfg.propName,
+            launchSettingName: cfg.launchSetting
+        };
     }
 
-    public async checkModelHealth(modelType: ModelType) {
-        let healthState = await this.app.llamaServer.checkHealth(modelType, this.app.getModel(modelType));
-        if (healthState.toLowerCase() == "ok" || healthState.toLowerCase() == "healthy") vscode.window.showInformationMessage(modelType.charAt(0).toUpperCase() + modelType.slice(1) + " model health is OK.");
-        else vscode.window.showErrorMessage("Error with " + modelType + " model:" + healthState);
-        this.app.setModelState(modelType, healthState);
+    getDetails(m: LlmModel): string {
+        return `name: ${m.name}\nlocal start command: ${m.localStartCommand ?? ''}\nendpoint: ${m.endpoint ?? ''}\nmodel name for provider: ${m.aiModel ?? ''}\napi key required: ${m.isKeyRequired ?? false}`;
     }
 
-    private async updateModelState(modelType: ModelType) {
-        let healthState = await this.app.llamaServer.checkHealth(modelType, this.app.getModel(modelType));
-        let currentHealthState = this.app.getModelState(modelType);
-        if ((currentHealthState == "" || currentHealthState.toLocaleLowerCase() == "ok" || currentHealthState.toLocaleLowerCase() == "healthy") 
-            && healthState.toLowerCase() != "ok" && healthState.toLowerCase() != "healthy") {
-            vscode.window.showErrorMessage("Error with completion model:" + healthState);
-        }
-        this.app.setModelState(modelType, healthState.slice(0, 150));
+    sanitizeCommand(cmd: string): string { return cmd ? cmd.trim() : ''; }
+    sanitizeInput(s: string): string { return s ? s.trim() : ''; }
+
+    private t(key: string): string {
+        return key;
     }
 }

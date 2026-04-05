@@ -1,75 +1,32 @@
-import * as crypto from 'crypto';
-import { Application } from './application';
-import * as vscode from "vscode"
-import { Chat } from './types';
-
+import * as vscode from 'vscode';
 
 export class Persistence {
-    private uniquePrefix: string = "llama.vscode.";
-    private apiKeysMapPrefix: string = "apiKeys.";
-    private chatsName: string = "chats";
-    private context: vscode.ExtensionContext;
-    private app: Application
+    private readonly prefix = 'llama.vscode.fim';
+    private ctx: vscode.ExtensionContext;
 
-    constructor(app: Application, context: vscode.ExtensionContext) {
-        this.context = context;
-        this.app = app;
+    constructor(ctx: vscode.ExtensionContext) {
+        this.ctx = ctx;
     }
 
-    getApiKey = (endpoint: string): string | undefined => {
-        return this.context.globalState.get(this.uniquePrefix + this.apiKeysMapPrefix + endpoint) as string
+    // ── Workspace-scoped generic KV ───────────────────────────────────────
+    async setValue(key: string, value: unknown) {
+        await this.ctx.workspaceState.update(this.prefix + key, value);
     }
-    
-    setApiKey = (endpoint: string, apiKey: string) => {
-        this.context.globalState.update(this.uniquePrefix + this.apiKeysMapPrefix +  endpoint, apiKey);        
+    getValue<T>(key: string): T | undefined {
+        return this.ctx.workspaceState.get<T>(this.prefix + key);
     }
-    
-    deleteApiKey = (endpoint: string) => {
-        this.context.globalState.update(this.uniquePrefix + this.apiKeysMapPrefix +  endpoint, undefined);      
-    }
-
-    getAllApiKeys = (): Map<string, string> => {
-        const apiKeys = this.context.globalState.keys().filter(key => key.startsWith(this.uniquePrefix + this.apiKeysMapPrefix));
-        let apiKeysMap = new Map<string,string>();
-        for (let key of apiKeys){
-            apiKeysMap.set(key.slice((this.uniquePrefix + this.apiKeysMapPrefix).length), this.context.workspaceState.get(key)??"")
-        }
-        return apiKeysMap;
+    deleteValue(key: string) {
+        this.ctx.workspaceState.update(this.prefix + key, undefined);
     }
 
-    setValue = async (key: string, value: any) => {
-        await this.context.workspaceState.update(this.uniquePrefix + key, value);
+    // ── Global KV ─────────────────────────────────────────────────────────
+    async setGlobalValue(key: string, value: unknown) {
+        await this.ctx.globalState.update(this.prefix + key, value);
     }
-
-    getValue = (key: string): any => {
-        return this.context.workspaceState.get(this.uniquePrefix + key);
+    getGlobalValue<T>(key: string): T | undefined {
+        return this.ctx.globalState.get<T>(this.prefix + key);
     }
-
-    setChats = async (value: Chat[]) => {
-        try {
-            await this.context.workspaceState.update(this.uniquePrefix + this.chatsName, value);
-        } catch (error){
-            console.log(error)
-        }
-    }
-
-    getChats = (): any => {
-        return this.context.workspaceState.get<Chat[]>(this.uniquePrefix + this.chatsName);
-    }
-
-    deleteValue = (key: string) => {
-        this.context.workspaceState.update(this.uniquePrefix + key, undefined);
-    }
-
-    setGlobalValue = async (key: string, value: any) => {
-        await this.context.globalState.update(this.uniquePrefix + key, value);
-    }
-
-    getGlobalValue = (key: string): any => {
-        return this.context.globalState.get(this.uniquePrefix + key);
-    }
-
-    deleteGlobalValue = (key: string) => {
-        this.context.globalState.update(this.uniquePrefix + key, undefined);
+    deleteGlobalValue(key: string) {
+        this.ctx.globalState.update(this.prefix + key, undefined);
     }
 }

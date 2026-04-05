@@ -1,7 +1,8 @@
-import {Application} from "./application";
-import { LlamaResponse } from "./types";
+import { Application } from "./application";
+import { LlamaResponse, InfillResponseItem } from "./types";
+import axios from "axios";
 import vscode from "vscode";
-import {Utils} from "./utils";
+import { Utils } from "./utils";
 
 interface CompletionDetails {
     completions: string[];
@@ -14,143 +15,154 @@ interface CompletionDetails {
 
 export class Completion {
     private app: Application
-    private isRequestInProgress = false
     isForcedNewRequest = false
-    lastCompletion: CompletionDetails = {completions: [], complIndex: 0, position: new vscode.Position(0, 0), inputPrefix: "", inputSuffix: "", prompt: ""};
+    lastCompletion: CompletionDetails = { completions: [], complIndex: 0, position: new vscode.Position(0, 0), inputPrefix: "", inputSuffix: "", prompt: "" };
+    private lastRequestTimer = 0
 
     constructor(application: Application) {
         this.app = application;
     }
 
     // Class field is used instead of a function to make "this" available
-    getCompletionItems = async (document: vscode.TextDocument, position: vscode.Position, context: vscode.InlineCompletionContext, token: vscode.CancellationToken): Promise<vscode.InlineCompletionList | vscode.InlineCompletionItem[] | null> => {
+    getCompletionItems = async (
+        document: vscode.TextDocument,
+        position: vscode.Position,
+        context: vscode.InlineCompletionContext,
+        token: vscode.CancellationToken
+    ): Promise<vscode.InlineCompletionList | vscode.InlineCompletionItem[] | null> => {
         let group = "GET_COMPLETION_" + Date.now();
+        const startTime = Date.now();
+
+        // Update the class-level timer so newer requests can invalidate this one
+        this.lastRequestTimer = startTime;
+
         if (!this.app.configuration.auto && context.triggerKind == vscode.InlineCompletionTriggerKind.Automatic) {
-            this.app.logger.addEventLog(group, "MANUAL_MODE_AUTOMATIC_TRIGGERING_RETURN", "")
             return null;
         }
 
-        // Debounce: wait for the user to pause typing before hitting the backend
-        if (context.triggerKind == vscode.InlineCompletionTriggerKind.Automatic && this.app.configuration.debounce_ms > 0) {
-            await Utils.delay(this.app.configuration.debounce_ms);
-            if (token.isCancellationRequested) {
-                this.app.logger.addEventLog(group, "DEBOUNCE_CANCELLATION_RETURN", "")
-                return null;
-            }
-        }
+        this.app.logger.addEventLog(group, JSON.stringify([Date.now(), this.lastRequestTimer]), "");
 
-        // Start only if the previous request is finiched
-        while (this.isRequestInProgress) {
-            await Utils.delay(this.app.configuration.DELAY_BEFORE_COMPL_REQUEST);
-            if (token.isCancellationRequested) {
-                this.app.logger.addEventLog(group, "CANCELLATION_TOKEN_RETURN", "waiting")
-                return null;
-            }
-        }
-        this.isRequestInProgress = true // Just before leaving the function should be set to false
-        this.app.extraContext.lastComplStartTime = Date.now();
-
-        // Gather local context
+        // Gather local context synchronously before entering the async block
         const prefixLines = Utils.getPrefixLines(document, position, this.app.configuration.n_prefix);
         const suffixLines = Utils.getSuffixLines(document, position, this.app.configuration.n_suffix);
-        const lineText = document.lineAt(position.line).text
+        const lineText = document.lineAt(position.line).text;
         const cursorIndex = position.character;
         const linePrefix = lineText.slice(0, cursorIndex);
         const lineSuffix = lineText.slice(cursorIndex);
-        const nindent = lineText.length - lineText.trimStart().length
+
         if (context.triggerKind == vscode.InlineCompletionTriggerKind.Automatic && lineSuffix.length > this.app.configuration.max_line_suffix) {
-            this.isRequestInProgress = false
-            this.app.logger.addEventLog(group, "TOO_LONG_SUFFIX_RETURN", "")
-            return null
+            this.app.logger.addEventLog(group, "TOO_LONG_SUFFIX_RETURN", "");
+            return null;
         }
+
         let prompt = linePrefix;
         let spacesToRemove = 0;
         if (this.isOnlySpacesOrTabs(prompt)) {
             prompt = "";
-            spacesToRemove = linePrefix.length //in case of tabs probably less spaces will be removed, but better to keep it simple
+            spacesToRemove = linePrefix.length;
         }
         const inputPrefix = prefixLines.join('\n') + '\n';
         const inputSuffix = lineSuffix + '\n' + suffixLines.join('\n') + '\n';
 
-        // Reuse cached completion if available.
-        try {
-            let data: LlamaResponse | undefined
-            let hashKey = this.app.lruResultCache.getHash(inputPrefix + "|" + inputSuffix + "|" + prompt)
-            let completions = this.getCachedCompletion(hashKey, inputPrefix, inputSuffix, prompt)
-            let isCachedResponse = !this.isForcedNewRequest && completions != undefined
-            if (!isCachedResponse) {
-                this.isForcedNewRequest = false
-                if (token.isCancellationRequested){
-                    this.isRequestInProgress = false
-                    this.app.logger.addEventLog(group, "CANCELLATION_TOKEN_RETURN", "just before server request")
-                    return null;
-                }
-                this.app.statusbar.showThinkingInfo();
+        // Use the debounce setting to wait for a pause in typing
+        const debounceMs = this.app.configuration.debounce_ms || 150;
 
-                data = await this.app.llamaServer.getFIMCompletion(inputPrefix, inputSuffix, prompt, this.app.extraContext.chunks, nindent)
-                if (data != undefined) completions = this.getComplFromContent(data);
-                else completions = undefined
-            }
-            if (completions == undefined || completions.length == 0){
-                this.app.statusbar.showInfo(undefined);
-                this.isRequestInProgress = false
-                this.app.logger.addEventLog(group, "NO_SUGGESTION_RETURN", "")
-                return [];
-            }
-
-            let newCompletions: string[] = []
-            let firstComplLines: string[] = []
-
-            for (let compl of completions){
-                let suggestionLines = compl.split(/\r?\n/)
-                Utils.removeTrailingNewLines(suggestionLines);
-
-                if (this.shouldDiscardSuggestion(suggestionLines, document, position, linePrefix, lineSuffix)) {
-                    continue
-                } else {
-                    compl = this.updateSuggestion(suggestionLines, lineSuffix);
-                    newCompletions.push(compl);
-                    if (firstComplLines.length == 0) firstComplLines = suggestionLines;
-                }     
-            }
-            if (newCompletions.length == 0){
-                this.app.statusbar.showInfo(undefined);
-                    this.isRequestInProgress = false
-                    this.app.logger.addEventLog(group, "DISCARD_SUGGESTION_RETURN", "")
-                    return [];
-            }
-
-            if (!isCachedResponse && newCompletions) this.app.lruResultCache.put(hashKey, newCompletions)
-            this.lastCompletion = this.getCompletionDetails(newCompletions, position, inputPrefix, inputSuffix, prompt);
-
-            // Run async as not needed for the suggestion
+        // Return a promise that handles the deferred execution
+        return new Promise((resolve) => {
             setTimeout(async () => {
-                if (isCachedResponse) this.app.statusbar.showCachedInfo()
-                else this.app.statusbar.showInfo(data);
-                if (!token.isCancellationRequested && lineSuffix.trim() === ""){
-                    await this.cacheFutureSuggestion(inputPrefix, inputSuffix, prompt, firstComplLines);
-                    await this.cacheFutureAcceptLineSuggestion(inputPrefix, inputSuffix, prompt, firstComplLines);
+                // Check if a newer request started or VS Code cancelled this one during the timeout
+                if (token.isCancellationRequested || this.lastRequestTimer !== startTime) {
+                    this.app.logger.addEventLog(group, "CANCELLATION_TOKEN_RETURN", "superseded by newer request");
+                    return resolve(null);
                 }
-                if (!token.isCancellationRequested){
-                    this.app.extraContext.addFimContextChunks(position, context, document);
+
+                try {
+                    let data: LlamaResponse | InfillResponseItem | InfillResponseItem[] | undefined;
+                    let hashKey = this.app.lruResultCache.getHash(inputPrefix + "|" + inputSuffix + "|" + prompt);
+                    let completions = this.getCachedCompletion(hashKey, inputPrefix, inputSuffix, prompt);
+                    let isCachedResponse = !this.isForcedNewRequest && completions != undefined;
+
+                    if (!isCachedResponse) {
+                        this.isForcedNewRequest = false;
+                        this.app.statusbar.showThinkingInfo();
+
+                        // Request completion from the server
+                        data = await this.app.llamaServer.getFIMCompletion(inputPrefix, inputSuffix, prompt);
+
+                        // Critical check: Did a new request come in while we were waiting for the server?
+                        if (token.isCancellationRequested || this.lastRequestTimer !== startTime) {
+                            return resolve(null);
+                        }
+
+                        if (data != undefined) completions = this.getComplFromContent(data);
+                        else completions = undefined;
+                    }
+
+                    if (completions == undefined || completions.length == 0) {
+                        this.app.statusbar.showInfo(undefined);
+                        this.app.logger.addEventLog(group, "NO_SUGGESTION_RETURN", "");
+                        return resolve([]);
+                    }
+
+                    let newCompletions: string[] = [];
+                    let firstComplLines: string[] = [];
+
+                    for (let compl of completions) {
+                        let suggestionLines = compl.split(/\r?\n/);
+                        Utils.removeTrailingNewLines(suggestionLines);
+
+                        if (this.shouldDiscardSuggestion(suggestionLines, document, position, linePrefix, lineSuffix)) {
+                            continue;
+                        } else {
+                            compl = this.updateSuggestion(suggestionLines, lineSuffix);
+                            newCompletions.push(compl);
+                            if (firstComplLines.length == 0) firstComplLines = suggestionLines;
+                        }
+                    }
+
+                    if (newCompletions.length == 0) {
+                        this.app.statusbar.showInfo(undefined);
+                        this.app.logger.addEventLog(group, "DISCARD_SUGGESTION_RETURN", "");
+                        return resolve([]);
+                    }
+
+                    // Store results and update state
+                    if (!isCachedResponse) this.app.lruResultCache.put(hashKey, newCompletions);
+                    this.lastCompletion = this.getCompletionDetails(newCompletions, position, inputPrefix, inputSuffix, prompt);
+
+                    // Update UI and trigger background caching
+                    if (isCachedResponse) {
+                        this.app.statusbar.showCachedInfo();
+                    } else {
+                        this.app.statusbar.showInfo(data);
+                    }
+
+                    if (!token.isCancellationRequested && lineSuffix.trim() === "") {
+                        // Background tasks are not awaited to keep the response snappy
+                        this.cacheFutureSuggestion(inputPrefix, inputSuffix, prompt, firstComplLines);
+                        this.cacheFutureAcceptLineSuggestion(inputPrefix, inputSuffix, prompt, firstComplLines);
+                    }
+
+                    if (!token.isCancellationRequested) {
+                        this.app.extraContext.addFimContextChunks(position, context, document);
+                    }
+
+                    this.app.logger.addEventLog(group, "NORMAL_RETURN", firstComplLines[0]);
+                    return resolve(this.getCompletion(newCompletions, position, spacesToRemove));
+
+                } catch (err: any) {
+                    if (axios.isCancel(err)) {
+                        this.app.logger.addEventLog(group, "ABORTED_BY_NEW_REQUEST", "");
+                        return resolve([]);
+                    }
+                    console.error("Error fetching llama completion:", err);
+                    let errorMessage = err instanceof Error ? err.message : "Error fetching completion";
+                    this.app.logger.addEventLog(group, "ERROR_RETURN", errorMessage);
+                    return resolve([]);
                 }
-            }, 0);
-            this.isRequestInProgress = false
-            this.app.logger.addEventLog(group, "NORMAL_RETURN", firstComplLines[0])
-            return this.getCompletion(newCompletions||[], position, spacesToRemove);
-        } catch (err) {
-            console.error("Error fetching llama completion:", err);
-            vscode.window.showInformationMessage(this.app.configuration.getUiText(`Error getting response. Please check if llama.cpp server is running.`)??"");
-            let errorMessage = "Error fetching completion"
-            if (err instanceof Error) {
-                vscode.window.showInformationMessage(err.message);
-                errorMessage = err.message
-            }
-            this.isRequestInProgress = false
-            this.app.logger.addEventLog(group, "ERROR_RETURN", errorMessage)
-            return [];
-        }
-    }
+            }, debounceMs);
+        });
+    };
 
     private isOnlySpacesOrTabs = (str: string): boolean => {
         // Regular expression to match only spaces and tabs
@@ -177,8 +189,8 @@ export class Completion {
             let result = this.app.lruResultCache.get(hash)
             if (result == undefined) continue
             let completions: string[] = []
-            for (const compl of result){
-                if (compl && promptCut == compl.slice(0,promptCut.length)) {
+            for (const compl of result) {
+                if (compl && promptCut == compl.slice(0, promptCut.length)) {
                     completions.push(compl.slice(prompt.length - newPrompt.length))
                 }
             }
@@ -188,23 +200,23 @@ export class Completion {
         return undefined
     }
 
-    getCompletion = (completions: string[], 
+    getCompletion = (completions: string[],
         position: vscode.Position,
         spacesToRemove: number): vscode.InlineCompletionItem[] => {
         let completionItems: vscode.InlineCompletionItem[] = []
-        for (const completion of completions){
+        for (const completion of completions) {
             const compl: vscode.InlineCompletionItem = new vscode.InlineCompletionItem(
                 this.removeLeadingSpaces(completion, spacesToRemove),
                 new vscode.Range(position, position)
             )
             completionItems.push(compl);
         }
-    
+
         return completionItems;
     }
 
     private getCompletionDetails = (completions: string[], position: vscode.Position, inputPrefix: string, inputSuffix: string, prompt: string) => {
-        return { completions: completions,complIndex: 0, position: position, inputPrefix: inputPrefix, inputSuffix: inputSuffix, prompt: prompt };
+        return { completions: completions, complIndex: 0, position: position, inputPrefix: inputPrefix, inputSuffix: inputSuffix, prompt: prompt };
     }
 
     // logic for discarding predictions that repeat existing text
@@ -260,26 +272,27 @@ export class Completion {
         return suggestionLines.join("\n");
     }
 
-    private  cacheFutureSuggestion = async (inputPrefix: string, inputSuffix: string, prompt: string, suggestionLines: string[]) => {
+    private cacheFutureSuggestion = async (inputPrefix: string, inputSuffix: string, prompt: string, suggestionLines: string[]) => {
         let futureInputPrefix = inputPrefix;
         let futureInputSuffix = inputSuffix;
         let futurePrompt = prompt + suggestionLines[0];
         if (suggestionLines.length > 1) {
             futureInputPrefix = inputPrefix + prompt + suggestionLines.slice(0, -1).join('\n') + '\n';
             futurePrompt = suggestionLines[suggestionLines.length - 1];
-            let futureInputPrefixLines = futureInputPrefix.slice(0,-1).split(/\r?\n/)
-            if (futureInputPrefixLines.length > this.app.configuration.n_prefix){
-                futureInputPrefix = futureInputPrefixLines.slice(futureInputPrefixLines.length - this.app.configuration.n_prefix).join('\n')+ '\n';
+            let futureInputPrefixLines = futureInputPrefix.slice(0, -1).split(/\r?\n/)
+            if (futureInputPrefixLines.length > this.app.configuration.n_prefix) {
+                futureInputPrefix = futureInputPrefixLines.slice(futureInputPrefixLines.length - this.app.configuration.n_prefix).join('\n') + '\n';
             }
         }
         let futureHashKey = this.app.lruResultCache.getHash(futureInputPrefix + "|" + futureInputSuffix + "|" + futurePrompt)
         let cached_completion = this.app.lruResultCache.get(futureHashKey)
         if (cached_completion != undefined) return;
-        let futureData = await this.app.llamaServer.getFIMCompletion(futureInputPrefix, futureInputSuffix, futurePrompt, this.app.extraContext.chunks, prompt.length - prompt.trimStart().length);
+        let futureData = await this.app.llamaServer.getFIMCompletion(futureInputPrefix, futureInputSuffix, futurePrompt);
         let futureSuggestions = [];
-        if (futureData != undefined && futureData.content != undefined && futureData.content.trim() != "") {
+        if (futureData != undefined) {
             let suggestions = this.getComplFromContent(futureData);
-            for (let futureSuggestion of suggestions||[]){
+            for (let futureSuggestion of suggestions || []) {
+                if (!futureSuggestion.trim()) continue;
                 let suggestionLines = futureSuggestion.split(/\r?\n/)
                 Utils.removeTrailingNewLines(suggestionLines);
                 futureSuggestion = suggestionLines.join('\n')
@@ -290,7 +303,7 @@ export class Completion {
         }
     }
 
-    private  cacheFutureAcceptLineSuggestion = async (inputPrefix: string, inputSuffix: string, prompt: string, suggestionLines: string[]) => {
+    private cacheFutureAcceptLineSuggestion = async (inputPrefix: string, inputSuffix: string, prompt: string, suggestionLines: string[]) => {
         // For one line suggestion there is nothing to cache
         if (suggestionLines.length > 1) {
             let futureInputSuffix = inputSuffix;
@@ -352,30 +365,30 @@ export class Completion {
 
     increaseSuggestionIndex = async () => {
         const totalCompletions = this.lastCompletion.completions.length
-        if (totalCompletions > 0){
+        if (totalCompletions > 0) {
             this.lastCompletion.complIndex = (this.lastCompletion.complIndex + 1) % totalCompletions
         }
     }
 
     decreaseSuggestionIndex = async () => {
         const totalCompletions = this.lastCompletion.completions.length
-        if (totalCompletions > 0){
+        if (totalCompletions > 0) {
             if (this.lastCompletion.complIndex > 0) this.lastCompletion.complIndex--
             else this.lastCompletion.complIndex = totalCompletions - 1
         }
     }
 
     private getComplFromContent(codeCompletions: any): string[] | undefined {
-        if ("content" in codeCompletions) 
-            return [codeCompletions.content??""]
-        
-        if (codeCompletions.length > 0){
+        if ("content" in codeCompletions)
+            return [codeCompletions.content ?? ""]
+
+        if (codeCompletions.length > 0) {
             let completions: Set<string> = new Set()
-            for (const compl of codeCompletions){
-                completions.add(compl.content??"")
+            for (const compl of codeCompletions) {
+                completions.add(compl.content ?? "")
             }
             return Array.from(completions);
-        } 
+        }
         else return [];
     }
 }

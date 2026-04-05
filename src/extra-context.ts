@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import {Application} from "./application";
+import { Application } from "./application";
 
 export class ExtraContext {
     private app: Application
@@ -20,7 +20,7 @@ export class ExtraContext {
     periodicRingBufferUpdate = () => {
         const editor = vscode.window.activeTextEditor;
         if (!editor || !editor.document) return;
-        if (!this.app.configuration.isCompletionEnabled(editor.document)) return;
+        if (!this.app.configuration.isCompletionEnabled()) return;
         if (this.queuedChunks === undefined
             || this.queuedChunks === null
             || this.queuedChunks.length == 0
@@ -39,8 +39,6 @@ export class ExtraContext {
                 this.chunksHash.shift()
             }
         }
-
-        this.app.llamaServer.updateExtraContext(this.chunks)
     };
 
     // Class field is used instead of a function to make "this" available
@@ -158,7 +156,7 @@ export class ExtraContext {
         }
 
         this.fileSaveTimeout = setTimeout(() => {
-            if (!this.app.configuration.isCompletionEnabled(document)) return;
+            if (!this.app.configuration.isCompletionEnabled()) return;
 
             let chunkLines: string[] = []
             const editor = vscode.window.activeTextEditor;
@@ -174,7 +172,7 @@ export class ExtraContext {
         }, 1000); // Adjust the delay as needed
     }
 
-    addChunkFromSelection = (editor:  vscode.TextEditor) => {
+    addChunkFromSelection = (editor: vscode.TextEditor) => {
         const selection = editor.selection;
         const selectedText = editor.document.getText(selection);
 

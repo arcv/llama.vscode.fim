@@ -1,45 +1,42 @@
 import * as vscode from 'vscode';
-import {Application} from "./application";
+import { Application } from './application';
+import { log } from './debug-logger';
 
-let app: Application
-export function activate(context: vscode.ExtensionContext) {
-    app = Application.getInstance(context);
-    app.architect.setStatusBar(context)
-    app.architect.setOnChangeConfiguration(context);
-    app.architect.setCompletionProvider(context);
-    app.architect.registerCommandManualCompletion(context);
-    app.architect.registerCommandCopyChunks(context);
-    app.architect.registerCommandAskAi(context);
-    app.architect.registerCommandAskAiWithContext(context);
-    app.architect.registerCommandAskAiWithTools(context);
-    app.architect.registerCommandNoCacheCompletion(context);
-    app.architect.setOnSaveFile(context);
-    app.architect.setPeriodicRingBufferUpdate(context);
-    app.architect.setPeriodicModelsHealthUpdate(context);
-    app.architect.setClipboardEvents(context);
-    app.architect.setOnChangeActiveFile(context);
-    app.architect.registerCommandAcceptFirstLine(context);
-    app.architect.registerCommandAcceptFirstWord(context);
-    app.architect.registerCommandShowMenu(context);
-    app.architect.registerCommandEditSelectedText(context);
-    app.architect.registerCommandEditAllSearchFiles(context);
-    app.architect.registerCommandAcceptTextEdit(context);
-    app.architect.registerCommandRejectTextEdit(context);
-    app.architect.setOnSaveDeleteFileForDb(context);
-    app.architect.setOnChangeWorkspaceFolders(context)
-    app.architect.registerGenarateCommitMsg(context)
-    app.architect.registerCommandKillAgent(context)
-    app.architect.registerWebviewProvider(context)
-    app.architect.registerCommandSelectNextSuggestion(context)
-    app.architect.registerCommandSelectPreviousSuggestion(context)
-    app.architect.init()
+let app: Application;
+
+export function activate(ctx: vscode.ExtensionContext) {
+    app = Application.getInstance(ctx);
+
+    // Status bar + menu
+    app.architect.setStatusBar(ctx);
+    app.architect.registerCommandShowMenu(ctx);
+
+    // Configuration change listener
+    app.architect.setOnChangeConfiguration(ctx);
+
+    // Inline completion
+    app.architect.setCompletionProvider(ctx);
+    app.architect.registerCommandManualCompletion(ctx);
+    app.architect.registerCommandNoCacheCompletion(ctx);
+    app.architect.registerCommandAcceptFirstLine(ctx);
+    app.architect.registerCommandAcceptFirstWord(ctx);
+    app.architect.registerCommandSelectNextSuggestion(ctx);
+    app.architect.registerCommandSelectPreviousSuggestion(ctx);
+
+    // Ring-buffer & extra context
+    app.architect.setOnChangeActiveFile(ctx);
+    app.architect.setPeriodicRingBufferUpdate(ctx);
+
+    // Health check
+    app.architect.setPeriodicModelsHealthUpdate(ctx);
+
+    // Init (version check, restore last model, llama.cpp install prompt)
+    app.architect.init();
+
+    log.info('extension', 'llama-vscode-fim activated');
 }
 
 export async function deactivate() {
-    // VS Code will dispose all registerd disposables
-    app.llamaServer.killFimCmd();
-    app.llamaServer.killChatCmd();
-    app.llamaServer.killEmbeddingsCmd();
-    app.llamaServer.killToolsCmd();
-    app.llamaServer.killCommandCmd();
+    log.info('extension', 'llama-vscode-fim deactivating');
+    app?.debugLogger.dispose();
 }
