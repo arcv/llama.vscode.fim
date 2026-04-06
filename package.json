@@ -122,8 +122,8 @@
         },
         "llama-vscode-fim.endpoint": {
           "type": "string",
-          "default": "",
-          "description": "The URL to be used by the extension for code completion."
+          "default": "http://127.0.0.1:8012",
+          "description": "URL of the llama-server used for all FIM completion requests. This is the single source of truth — individual models do not override it."
         },
         "llama-vscode-fim.max_parallel_completions": {
           "type": "number",
@@ -147,43 +147,29 @@
             "properties": {
               "name": {
                 "type": "string",
-                "description": "Name for this model to be shown to the user"
-              },
-              "endpoint": {
-                "type": "string",
-                "description": "The endpoint, from where to access the model",
-                "default": ""
+                "description": "Display name shown in the model picker"
               },
               "aiModel": {
                 "type": "string",
-                "description": "The name of the AI model as expected by the provider",
+                "description": "Model name exactly as expected by the provider (e.g. qwen/qwen3-30b-a3b). Leave empty when llama-server auto-selects the model.",
                 "default": ""
-              },
-              "isKeyRequired": {
-                "type": "boolean",
-                "description": "Is key requried for the endpoint",
-                "default": false
               },
               "localStartCommand": {
                 "type": "string",
-                "description": "Command to be used for sterting the model locally.",
+                "description": "Shell command used to start this model locally via llama-server.",
                 "default": ""
               }
             },
-            "required": [
-              "name"
-            ]
+            "required": [ "name" ]
           },
           "default": [
             {
-              "name": "Qwen3.5-2B-Q8_0.gguf",
-              "localStartCommand": "",
-              "endpoint": "http://192.168.1.101:8012",
-              "aiModel": "Qwen3.5-2B-Q8_0.gguf",
-              "isKeyRequired": false
+              "name": "Qwen2.5-Coder-1.5B (local)",
+              "localStartCommand": "llama-server --fim-qwen-1.5b-default --port 8012",
+              "aiModel": ""
             }
           ],
-          "description": "The list of the completion (FIM) models, which could be selected"
+          "description": "List of completion (FIM) models available for selection. The endpoint they talk to is always llama-vscode-fim.endpoint."
         },
         "llama-vscode-fim.ask_completion_llamacpp": {
           "type": "array",

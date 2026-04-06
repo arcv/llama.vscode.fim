@@ -100,6 +100,102 @@ You can use any other FIM-compatible model that your system can handle. By defau
 
 The plugin requires FIM-compatible models: [HF collection](https://huggingface.co/collections/ggml-org/llamavim-6720fece33898ac10544ecf9)
 
+---
+
+## Building the Extension
+
+### Prerequisites
+
+- [Node.js](https://nodejs.org/) v18 or later
+- npm v9 or later
+- [Visual Studio Code](https://code.visualstudio.com/) v1.100.0 or later
+- TypeScript (`npm install -g typescript`)
+- `vsce` — the VS Code Extension CLI (`npm install -g @vscode/vsce`)
+
+### 1. Clone and install dependencies
+
+```bash
+git clone https://github.com/arcv/llama.vscode.fim
+cd llama.vscode.fim
+npm install
+```
+
+### 2. Compile TypeScript
+
+Compile the extension once:
+
+```bash
+npm run compile
+```
+
+Or watch for changes during development (recompiles on every file save):
+
+```bash
+npm run watch
+```
+
+The compiled output lands in the `dist/` directory.
+
+### 3. Run in development mode (Extension Development Host)
+
+The easiest way to test without packaging:
+
+1. Open the repository folder in VS Code:
+   ```bash
+   code .
+   ```
+2. Press `F5` (or go to **Run → Start Debugging**).
+
+VS Code will launch a new **Extension Development Host** window with the extension loaded. Any changes you make after recompiling (or while `npm run watch` is running) take effect after reloading the host window with `Ctrl+Shift+P → Developer: Reload Window`.
+
+### 4. Run tests
+
+```bash
+npm test
+```
+
+This compiles the project and runs the Mocha test suite inside a VS Code test host via `@vscode/test-electron`.
+
+### 5. Package as a `.vsix` file
+
+To produce a self-contained installable package:
+
+```bash
+vsce package
+```
+
+This generates a file like `llama-vscode-fim-0.0.45.vsix` in the project root.
+
+> **Note:** `vsce` will warn if the `repository` field in `package.json` points to a non-existent URL or if there are missing fields. Fix any warnings before distributing.
+
+### 6. Install the `.vsix` into VS Code
+
+**From the command line:**
+
+```bash
+code --install-extension llama-vscode-fim-0.0.45.vsix
+```
+
+**From the VS Code UI:**
+
+1. Open the Extensions view (`Ctrl+Shift+X`).
+2. Click the **`···`** menu (top-right of the Extensions panel).
+3. Select **Install from VSIX…**
+4. Browse to the generated `.vsix` file and confirm.
+
+Reload VS Code when prompted. The status bar will show `✓ llama.vscode.fim` once the extension activates.
+
+---
+
+## Quick Start after Installation
+
+1. Start your llama-server with a Qwen FIM model (see [llama.cpp settings](#llamacpp-settings) above).
+2. Open the extension menu (`Ctrl+Shift+M`) and select **Completion models… → Select/start completion model**.
+3. Pick or add your model endpoint (`http://127.0.0.1:8012` by default).
+4. Start typing — completions appear automatically. Press `Tab` to accept.
+
+---
+
 ## Configuration
 
 Key settings available in VS Code Settings (`llama-vscode-fim` prefix):

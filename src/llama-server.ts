@@ -1,7 +1,7 @@
 import axios from 'axios';
 import * as vscode from 'vscode';
 import { Application } from './application';
-import { LlmModel, InfillResponseItem } from './types';
+import { InfillResponseItem } from './types';
 import { Utils } from './utils';
 import { log } from './debug-logger';
 
@@ -28,7 +28,6 @@ export class LlamaServer {
         this.app = app;
     }
 
-    /** Cancel any in-flight completion request */
     cancelPendingRequest(): void {
         if (this.currentRequestController) {
             this.currentRequestController.abort();
@@ -38,37 +37,36 @@ export class LlamaServer {
     }
 
     // ── FIM completion ────────────────────────────────────────────────────
+
     async getFIMCompletion(
         inputPrefix: string,
         inputSuffix: string,
         prompt: string,
     ): Promise<InfillResponseItem[] | undefined> {
 
-        const { endpoint, model, requestConfig } = this.getComplModelProperties();
-        // log.info("LlamaServer", JSON.stringify([endpoint, model, requestConfig]))
-        if (!endpoint) return undefined;
+        const endpoint = this.app.configuration.endpoint;
+        if (!endpoint) {
+            log.warn('LlamaServer', 'No endpoint configured — set llama-vscode-fim.endpoint in settings');
+            return undefined;
+        }
 
-        // 1. Manage Cancellation
+        const model = this.app.getComplModel().aiModel ?? this.app.configuration.ai_model;
+
         this.cancelPendingRequest();
-
-        // Create a local reference to the new controller
         const controller = new AbortController();
         this.currentRequestController = controller;
 
-        // 2. Prepare Payload with Language Context
         const fileName = vscode.window.activeTextEditor?.document.fileName || 'file.txt';
-        const shortName = Utils.getRelativePath(fileName);
-        const payload = this.buildV1Payload(inputPrefix, inputSuffix, prompt, model, shortName);
-
+        const payload = this.buildV1Payload(
+            inputPrefix, inputSuffix, prompt, model,
+            Utils.getRelativePath(fileName),
+        );
 
         try {
             const resp = await axios.post<OpenAICompletionResponse>(
                 `${Utils.trimTrailingSlash(endpoint)}/v1/completions`,
                 payload,
-                {
-                    ...requestConfig,
-                    signal: controller.signal, // Use the local reference
-                },
+                { ...this.app.configuration.axiosRequestConfigCompl, signal: controller.signal },
             );
 
             if (resp.status === STATUS_OK && resp.data.choices?.length > 0) {
@@ -87,7 +85,6 @@ export class LlamaServer {
                 log.error('LlamaServer', 'FIM request failed', err?.message);
             }
         } finally {
-            // ONLY clear the class property if it hasn't been overwritten by a newer request
             if (this.currentRequestController === controller) {
                 this.currentRequestController = null;
             }
@@ -95,10 +92,30 @@ export class LlamaServer {
         return undefined;
     }
 
-    private buildV1Payload(prefix: string, suffix: string, prompt: string, model: string, fileName: string) {
-        // Native Qwen FIM format with file context
-        const fullPrompt = `<|file_sep|>${fileName}\n<|fim_prefix|>${prefix}${prompt}<|fim_suffix|>${suffix}<|fim_middle|>`;
+    // ── Health check ──────────────────────────────────────────────────────
 
+    /** Checks health against the single configured endpoint. */
+    async checkHealth(endpoint: string): Promise<string> {
+        if (!endpoint) return 'no endpoint configured';
+        try {
+            const resp = await axios.get(
+                `${Utils.trimTrailingSlash(endpoint)}/health`,
+                this.app.configuration.axiosRequestConfigCompl,
+            );
+            return resp.data?.status ?? 'unknown';
+        } catch (err: any) {
+            return `Error: ${err?.message ?? 'unknown'}`;
+        }
+    }
+
+    // ── Private ───────────────────────────────────────────────────────────
+
+    private buildV1Payload(
+        prefix: string, suffix: string, prompt: string,
+        model: string, fileName: string,
+    ) {
+        const fullPrompt =
+            `<|file_sep|>${fileName}\n<|fim_prefix|>${prefix}${prompt}<|fim_suffix|>${suffix}<|fim_middle|>`;
         return {
             prompt: fullPrompt,
             max_tokens: this.app.configuration.n_predict,
@@ -107,28 +124,7 @@ export class LlamaServer {
             top_k: 1,
             stop: ['<|file_sep|>', '<|endoftext|>', '<|fim_prefix|>', '<|fim_suffix|>', '<|fim_middle|>'],
             model: model.trim() || undefined,
+            messages: [{ role: 'user', content: fullPrompt }],
         };
-    }
-
-    private getComplModelProperties() {
-        const sel = this.app.getComplModel();
-
-        // Use selected model values if available, otherwise fall back to configuration
-        const endpoint = sel.endpoint || this.app.configuration.endpoint;
-        const model = sel.aiModel || this.app.configuration.ai_model;
-        const requestConfig = this.app.configuration.axiosRequestConfigCompl;
-
-        return { endpoint, model, requestConfig };
-    }
-
-    // ── Health check ──────────────────────────────────────────────────────
-    async checkHealth(model: LlmModel): Promise<string> {
-        if (!model.endpoint) return 'no endpoint';
-        try {
-            const resp = await axios.get(`${model.endpoint}/health`, this.app.configuration.axiosRequestConfigCompl);
-            return resp.data?.status ?? 'unknown';
-        } catch (err: any) {
-            return `Error: ${err?.message ?? 'unknown'}`;
-        }
     }
 }

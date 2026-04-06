@@ -8,8 +8,6 @@ export const MODEL_TYPE_CONFIG = {
         portSetting: 'new_completion_model_port',
         hostSetting: 'new_completion_model_host',
         launchSetting: 'launch_completion',
-        killCmdName: 'killFimCmd',
-        shellCmdName: 'shellFimCmd',
         propName: 'selectedComplModel' as const,
     },
 } as const;
@@ -39,16 +37,14 @@ export const PERSISTENCE_KEYS = {
 
 export const UI_TEXT_KEYS = {
     // Completions
-    selectStartCompletionModel: 'Select/start completion model...',
+    selectStartCompletionModel: 'FIM Models',
     deselectStopCompletionModel: 'Deselect/stop completion model',
-    addLocalCompletionModel: 'Add local completion model...',
-    addExternalCompletionModel: 'Add external completion model...',
-    addCompletionModelFromHuggingface: 'Add completion model from huggingface...',
-    addCompletionOpenAiCompModel: 'Add completion model from OpenAI compatible provider...',
-    viewCompletionModelDetails: 'View completion model details...',
-    deleteCompletionModel: 'Delete completion model...',
-    exportCompletionModel: 'Export completion model...',
-    importCompletionModel: 'Import completion model...',
+    addLocalCompletionModel: 'New FIM model',
+    addExternalCompletionModel: 'Configure External FIM model',
+    viewCompletionModelDetails: 'View Details',
+    deleteCompletionModel: 'Delete FIM model',
+    exportCompletionModel: 'Export FIM model',
+    importCompletionModel: 'Import FIM model',
     // Menu sections
     actions: 'Actions',
     maintenance: 'Maintenance',
@@ -56,29 +52,23 @@ export const UI_TEXT_KEYS = {
     // Toggles
     disable: 'Disable',
     enable: 'Enable',
-    allCompletions: 'All Completions',
-    turnOffCompletionsGlobally: 'Turn off completions globally',
-    turnOnCompletionsGlobally: 'Turn on completions globally',
+    allCompletions: 'FIM',
+    turnOffCompletionsGlobally: 'Disable FIM',
+    turnOnCompletionsGlobally: 'Enable FIM',
     completionsFor: 'Completions for',
     currently: 'Currently',
     enabled: 'enabled',
     disabled: 'disabled',
+    enableAutoComplete: 'Enable Auto Completion',
+    disableAutoComplete: 'Disable Auto Completion',
+    autoCompleteOn: 'Auto completion on (triggers automatically while typing)',
+    autoCompleteOff: 'Auto completion off (manual trigger only: Ctrl+L)',
     // Misc
-    completionModels: 'Completion models...',
-    editSettings: 'Edit Settings...',
-    viewDocumentation: 'View Documentation...',
-    showDebugLog: 'Show Debug Log',
+    completionModels: 'FIM Models',
+    editSettings: 'Settings',
+    viewDocumentation: 'View Docs',
+    showDebugLog: 'Show Logs',
     howToUseLlamaVscode: 'How to use llama-vscode-fim',
     howToDeleteModels: 'How to delete models',
     howToDeleteModelsDescription: 'Explains how to delete the downloaded models',
 } as const;
-
-export const OPENAI_COMP_PROVIDERS: Record<string, string> = {
-    'OpenRouter...': 'https://openrouter.ai/api',
-    'Custom...': '',
-};
-
-export enum OpenAiProvidersKeys {
-    OpenRouter = 'OpenRouter...',
-    Custom = 'Custom...',
-}

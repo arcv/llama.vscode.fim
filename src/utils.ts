@@ -1,14 +1,7 @@
 import vscode, { QuickPickItem, Uri } from "vscode";
-import { exec } from 'child_process';
 import fs from 'fs';
 import path from 'path';
-import { ChunkEntry, LlmModel } from './types'
-import pm from 'picomatch'
-import * as https from 'https';
-import * as http from 'http';
-import { URL } from 'url';
 import { Application } from "./application";
-import { UI_TEXT_KEYS } from "./constants";
 
 
 interface BM25Stats {
@@ -54,74 +47,6 @@ export class Utils {
             + chunksToSend.reduce((accumulator, currentValue) => accumulator + "\nFile Name: "
                 + currentValue.filename + "\nText:\n" + currentValue.text + "\n\n", "");
         return extraCont;
-    }
-
-    static computeBM25Stats = (docs: string[][]): BM25Stats => {
-        const docFreq: Map<string, number> = new Map();
-        const termFreq: Map<string, Map<number, number>> = new Map();
-        const docLengths: number[] = [];
-        let totalDocs = 0;
-
-        for (let docId = 0; docId < docs.length; docId++) {
-            const doc = docs[docId];
-            docLengths.push(doc.length);
-            const termsInDoc = new Set<string>();
-
-            for (const term of doc) {
-                // Update term frequency (per-doc)
-                if (!termFreq.has(term)) {
-                    termFreq.set(term, new Map());
-                }
-                const termDocMap = termFreq.get(term)!;
-                termDocMap.set(docId, (termDocMap.get(docId) || 0) + 1);
-
-                termsInDoc.add(term);
-            }
-
-            // Update document frequency (global)
-            for (const term of termsInDoc) {
-                docFreq.set(term, (docFreq.get(term) || 0) + 1);
-            }
-
-            totalDocs++;
-        }
-
-        const avgDocLength = docLengths.reduce((a, b) => a + b, 0) / totalDocs;
-        return {
-            avgDocLength,
-            docFreq: Object.fromEntries(docFreq),  // Convert to Record if needed
-            docLengths,
-            termFreq: Object.fromEntries(
-                Array.from(termFreq).map(([k, v]) => [k, Object.fromEntries(v)])
-            ),
-            totalDocs
-        };
-    };
-
-    static bm25Score = (
-        queryTerms: string[],
-        docIndex: number,
-        stats: BM25Stats,
-        k1 = 1.5,
-        b = 0.75
-    ): number => {
-        let score = 0;
-
-        for (const term of queryTerms) {
-            if (!stats.termFreq[term]) continue;
-
-            const tf = stats.termFreq[term][docIndex] || 0;
-            const idf = Math.log(
-                (stats.totalDocs - stats.docFreq[term] + 0.5) / (stats.docFreq[term] + 0.5) + 1
-            );
-
-            const numerator = tf * (k1 + 1);
-            const denominator = tf + k1 * (1 - b + b * stats.docLengths[docIndex] / stats.avgDocLength);
-
-            score += idf * numerator / denominator;
-        }
-
-        return score;
     }
 
     static expandSelectionToFullLines(editor: vscode.TextEditor) {
@@ -189,126 +114,6 @@ export class Utils {
             .split('\n')
             .map(line => spaces + line)
             .join('\n');
-    }
-
-    static executeTerminalCommand = async (command: string, cwd?: string): Promise<string> => {
-        return new Promise((resolve, reject) => {
-            const options = cwd ? { cwd } : undefined;
-
-            command = process.platform === 'win32'
-                ? `powershell -Command "${command.replace(/"/g, '\\"')}"`
-                : command;
-
-            exec(command, options, (error, stdout, stderr) => {
-                if (error) {
-                    resolve(error.message);
-                    return;
-                } else resolve(stdout.toString());
-            });
-        });
-    }
-
-
-
-    static isModifyingCommand = (command: string): boolean => {
-        if (!command || typeof command !== 'string') {
-            return false;
-        }
-
-        const normalizedCmd = command.trim().toLowerCase();
-
-        // List of modifying command patterns (both Windows and Unix)
-        const modifyingPatterns = [
-            // File operations
-            /^(rm|del|erase|remove)\b/,
-            /^rd\b/,
-            /^rmdir\b/,
-            /^(mv|move|ren|rename)\b/,
-            /^(cp|copy)\b/,
-            /^mkdir\b/,
-            /^ni\b/,          // New-Item (PowerShell)
-            /^out\-file\b/,
-            /^set\-content\b/,
-            /^add\-content\b/,
-            /^scp\b/,
-            /^rsync\b/,
-
-            // System modifications
-            /^chmod\b/,
-            /^chown\b/,
-            /^attrib\b/,
-            /^icacls\b/,
-            /^cacls\b/,
-            /^reg\b/,         // regedit operations
-            /^netsh\b/,
-            /^net\b/,
-            /^diskpart\b/,
-            /^format\b/,
-
-            // Package management
-            /^(apt|yum|dnf|pacman|brew|pip|npm|pnpm|yarn|dotnet|winget|choco)\b/,
-
-            // Process management
-            /^(kill|taskkill|stop\-process)\b/,
-            /^start\b/,
-
-            // Network operations
-            /^(ssh|ftp|sftp)\b/,
-
-            // Installation/execution
-            /^\.\/\S+/,
-            /^\.\\\S+/,
-            /^\w+:\\\S+/,
-            /^\.\S+\b/,
-            /^install\b/,
-            /^uninstall\b/,
-            /^setup\b/,
-            /^msiexec\b/,
-
-            // Dangerous patterns
-            /^>/,             // Output redirection (overwrite)
-            /^>>/,            // Output redirection (append)
-            /^\|/,            // Piping might modify if the receiving command does
-            /^&\S*/,          // Command chaining
-            /^;\S*/,          // Command sequencing
-            /^\$\w+\s*=/      // Variable assignment (might lead to modifications)
-        ];
-
-        if (modifyingPatterns.some(pattern => pattern.test(normalizedCmd))) {
-            return true;
-        }
-
-        const readOnlyPatterns = [
-            /^echo\b/,
-            /^dir\b/,
-            /^ls\b/,
-            /^cat\b/,
-            /^type\b/,
-            /^get\-content\b/,
-            /^get\-childitem\b/,
-            /^pwd\b/,
-            /^cd\b/,
-            /^chdir\b/,
-            /^where\b/,
-            /^which\b/,
-            /^find\b/,
-            /^grep\b/,
-            /^select\-string\b/,
-            /^help\b/,
-            /^man\b/,
-            /^--help\b/,
-            /^-h\b/,
-            /^\?/,
-            /^exit\b/,
-            /^clear\b/,
-            /^cls\b/
-        ];
-
-        if (readOnlyPatterns.some(pattern => pattern.test(normalizedCmd))) {
-            return false;
-        }
-
-        return true;
     }
 
     static showYesNoDialog = async (message: string): Promise<boolean> => {
@@ -406,41 +211,6 @@ export class Utils {
         } catch (error) {
             return `Error reading directory: ${error instanceof Error ? error.message : String(error)}`;
         }
-    }
-
-    static getRegexpMatches = (
-        includeGlob: string,
-        excludeGlobPtr: string,
-        searchPattern: string,
-        chunks: Map<number, ChunkEntry>
-    ): string => {
-
-        const MAX_REG_EXP_MATCHES = 50;
-        let matches: string = "";
-        let totalMatches: number = 0;
-        const regexSearch = new RegExp(searchPattern);
-        const isMatchInclude = includeGlob == undefined || includeGlob.trim() == "" ? undefined : pm(includeGlob);
-        const isMatchExclude = excludeGlobPtr == undefined || excludeGlobPtr.trim() == "" ? undefined : pm(excludeGlobPtr);
-        let valuesIterator = chunks.values()
-        let chunkIter = valuesIterator.next();
-        while (!chunkIter.done) {
-            let chunk = chunkIter.value;
-            if (chunk && (isMatchInclude == undefined || isMatchInclude(chunk.uri)) && (isMatchExclude == undefined || !isMatchExclude(chunk.uri))) {
-                const lines = chunk.content.split('\n');
-                let index = 0;
-                for (const line of lines) {
-                    if (regexSearch.test(line)) {
-                        matches += "\n" + chunk.uri + ":" + (chunk.firstLine + index) + ": " + line;
-                        totalMatches++;
-                        if (totalMatches > MAX_REG_EXP_MATCHES) return matches;
-                    }
-                    index++;
-                }
-            }
-            chunkIter = valuesIterator.next()
-        }
-        if (matches.trim() == "") matches = "No matches found"
-        return matches;
     }
 
     static getAbsolutFilePath = (filePath: string): string => {
@@ -645,114 +415,12 @@ export class Utils {
         });
     }
 
-    static fetchWebPage = async (url: string): Promise<string> => {
-        // Validate the URL
-        let parsedUrl: URL;
-        try {
-            parsedUrl = new URL(url);
-        } catch (error) {
-            throw new Error(`Invalid URL: ${url}`);
-        }
-
-        // Select the appropriate protocol module
-        const protocol = parsedUrl.protocol === 'https:' ? https : http;
-
-        return new Promise((resolve, reject) => {
-            const req = protocol.get(url, (res) => {
-                // Check status code
-                if (res.statusCode !== 200) {
-                    res.resume(); // Consume response data to free up memory
-                    reject(new Error(`Request failed with status code ${res.statusCode}`));
-                    return;
-                }
-
-                // Set encoding
-                res.setEncoding('utf8');
-
-                let rawData = '';
-
-                // Collect chunks of data
-                res.on('data', (chunk) => {
-                    rawData += chunk;
-                });
-
-                // Resolve when complete
-                res.on('end', () => {
-                    resolve(rawData);
-                });
-            });
-
-            // Handle errors
-            req.on('error', (error) => {
-                reject(new Error(`Request error: ${error.message}`));
-            });
-
-            // Set timeout
-            req.setTimeout(10000, () => {
-                req.destroy();
-                reject(new Error('Request timed out after 10 seconds'));
-            });
-        });
-    }
-
-    static extractTextFromHtml = (html: string): string => {
-        // Basic HTML tag removal
-        let text = html
-            .replace(/<script[^>]*>([\s\S]*?)<\/script>/gi, '')
-            .replace(/<style[^>]*>([\s\S]*?)<\/style>/gi, '')
-            .replace(/<[^>]+>/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim();
-
-        // Decode HTML entities
-        text = text
-            .replace(/&nbsp;/g, ' ')
-            .replace(/&amp;/g, '&')
-            .replace(/&lt;/g, '<')
-            .replace(/&gt;/g, '>')
-            .replace(/&quot;/g, '"')
-            .replace(/&apos;/g, "'");
-
-        return text;
-    }
-
     static trimTrailingSlash = (s: string): string => {
         if (s.length > 0 && s[s.length - 1] === "/") {
             return s.slice(0, -1);
         }
         return s;
     };
-
-    static readExtensionFile = async (relativePath: string): Promise<string> => {
-        // Get the extension's context (passed in activation)
-        const extension = vscode.extensions.getExtension('arcv.llama-vscode-fim');
-        if (!extension) {
-            throw new Error('Extension not found');
-        }
-
-        const absolitePath = path.join(extension.extensionPath, relativePath);
-
-        try {
-            // Read the file content
-            return await fs.promises.readFile(absolitePath, 'utf-8');
-        } catch (error) {
-            return `Failed to read extension file: ${error instanceof Error ? error.message : String(error)}`;
-        }
-    }
-
-    static getExtensionHelp = async () => {
-        return Utils.readExtensionFile("resources/help.md")
-    }
-
-    static removeFaOption = (input: string): string => {
-        return input.replace(/-fa[^-]*/g, '');
-    }
-
-    static removeFaOptionFromModels = (chatModels: LlmModel[]) => {
-        for (let model of chatModels) {
-            if (model.localStartCommand) model.localStartCommand = Utils.removeFaOption(model.localStartCommand);
-        }
-    }
 
     static isTimeToUpgrade = (date1: Date, date2: Date, interval: number): boolean => {
         const twentyFourHoursInMs = interval * 60 * 60 * 1000; // 24 hours in milliseconds
@@ -764,12 +432,6 @@ export class Utils {
     static async confirmAction(message: string, details: string = ""): Promise<boolean> {
         const fullMessage = message + (details ? "\n\n" + details : "");
         return Utils.showYesNoDialog(fullMessage);
-    }
-
-    static getFunctionFromFile = (filePath: string) => {
-        let functionCode = fs.readFileSync(filePath, 'utf-8');
-        const functionString = '(' + functionCode + ')';
-        return "";
     }
 
     static async getValidatedInput(prompt: string, validator: (input: string) => boolean, maxAttempts: number = 3, options: vscode.InputBoxOptions = {}): Promise<string | undefined> {

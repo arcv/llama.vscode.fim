@@ -1,7 +1,7 @@
-import * as vscode from "vscode";
-import { Application } from "../application";
-import { IAddStrategy, LlmModel, ModelTypeDetails } from "../types";
-import { Utils } from "../utils";
+import * as vscode from 'vscode';
+import { Application } from '../application';
+import { IAddStrategy, LlmModel, ModelTypeDetails } from '../types';
+import { Utils } from '../utils';
 
 export class ExternalModelStrategy implements IAddStrategy {
     private app: Application;
@@ -11,114 +11,76 @@ export class ExternalModelStrategy implements IAddStrategy {
     }
 
     async add(details: ModelTypeDetails): Promise<void> {
-        const hostEndpoint = "http://" + details.newModelHost;
+        // Name
         let name = await Utils.getValidatedInput(
-            'name for your model (required)',
-            (input) => input.trim() !== '',
+            'Name for your model (required)',
+            (v) => v.trim() !== '',
             5,
-            {
-                placeHolder: 'Enter a user friendly name for your model (required)',
-                value: ''
-            }
+            { placeHolder: 'User-friendly display name (required)', value: '' },
         );
-        if (name === undefined) {
-            vscode.window.showInformationMessage("Model addition cancelled.");
+        if (name === undefined) { vscode.window.showInformationMessage('Model addition cancelled.'); return; }
+        name = name.trim();
+
+        // Model name as the provider expects it
+        const aiModel = (await vscode.window.showInputBox({
+            placeHolder: 'Model name exactly as expected by the provider, e.g. qwen/qwen3-30b-a3b',
+            prompt: 'Leave empty if llama-server is used without an explicit model name',
+            value: '',
+        }) ?? '').trim();
+
+        const newModel: LlmModel = { name, aiModel };
+
+        const endpoint = this.app.configuration.endpoint;
+        const confirmed = await Utils.confirmAction(
+            'Add this model?',
+            `name: ${name}\n` +
+            `model name for provider: ${aiModel || '(none)'}\n` +
+            `endpoint (from settings): ${endpoint}`,
+        );
+        if (!confirmed) return;
+
+        let shouldOverwrite = false;
+        [newModel.name, shouldOverwrite] = await this.getUniqueModelName(details.modelsList, newModel);
+        if (!newModel.name) {
+            vscode.window.showInformationMessage('Model not added — no name provided.');
             return;
         }
-        name = this.sanitizeInput(name);
-
-        let endpoint = await Utils.getValidatedInput(
-            'Endpoint for your model (required)',
-            (input) => input.trim() !== '',
-            5,
-            {
-                placeHolder: 'Endpoint for accessing your model, i.e. ' + hostEndpoint + ':' + details.newModelPort + ' or https://openrouter.ai/api (required)',
-                value: ''
-            }
-        );
-        if (endpoint === undefined) {
-            vscode.window.showInformationMessage("Model addition cancelled.");
-            return;
+        if (shouldOverwrite) {
+            const idx = details.modelsList.findIndex((m) => m.name === newModel.name);
+            if (idx !== -1) details.modelsList.splice(idx, 1);
         }
-        endpoint = this.sanitizeInput(endpoint);
-        let aiModel = await vscode.window.showInputBox({
-            placeHolder: 'Model name, exactly as expected by the provider, i.e. kimi-latest ',
-            prompt: 'Enter model name as expected by the provider (leave empty if llama-server is used)',
-            value: ''
-        });
-        aiModel = this.sanitizeInput(aiModel || '');
-        const isKeyRequired = await Utils.confirmAction(`Is API key required for this endpoint (${endpoint})?`, "");
-        let newModel: LlmModel = {
-            name: name,
-            localStartCommand: "",
-            endpoint: endpoint,
-            aiModel: aiModel,
-            isKeyRequired: isKeyRequired
-        };
-
-        const shouldAddModel = await Utils.confirmAction("You have entered:",
-            "\nname: " + name +
-            "\nlocal start command: " +
-            "\nendpoint: " + endpoint +
-            "\nmodel name for provider: " + aiModel +
-            "\napi key required: " + isKeyRequired +
-            "\nDo you want to add a model with these properties?"
-        );
-
-        if (shouldAddModel) {
-            let shouldOverwrite = false;
-            [newModel.name, shouldOverwrite] = await this.getUniqueModelName(details.modelsList, newModel);
-            if (!newModel.name) {
-                vscode.window.showInformationMessage("The model was not added as the name was not provided.")
-                return;
-            }
-            if (shouldOverwrite) {
-                const index = details.modelsList.findIndex(model => model.name === newModel.name);
-                if (index !== -1) {
-                    details.modelsList.splice(index, 1);
-                }
-            }
-            details.modelsList.push(newModel);
-            this.app.configuration.updateConfigValue(details.modelsListSettingName, details.modelsList);
-            vscode.window.showInformationMessage("The model is added.")
-        }
+        details.modelsList.push(newModel);
+        this.app.configuration.updateConfigValue(details.modelsListSettingName, details.modelsList);
+        vscode.window.showInformationMessage('Model added.');
     }
 
-    private sanitizeInput(input: string): string {
-        return input ? input.trim() : '';
-    }
+    // ── Private ───────────────────────────────────────────────────────────
 
-    private async getUniqueModelName(modelsList: LlmModel[], newModel: LlmModel): Promise<[string, boolean]> {
+    private async getUniqueModelName(
+        modelsList: LlmModel[], newModel: LlmModel,
+    ): Promise<[string, boolean]> {
         let uniqueName = newModel.name;
         let shouldOverwrite = false;
-        let modelSameName = modelsList.find(model => model.name === uniqueName);
-        while (uniqueName && !shouldOverwrite && modelSameName !== undefined) {
-            shouldOverwrite = await Utils.confirmAction("A model with the same name already exists. Do you want to overwrite the existing model?",
-                "Existing model:\n" +
-                this.getModelDetailsAsString(modelSameName) +
-                "\n\nNew model:\n" +
-                this.getModelDetailsAsString(newModel)
+        let existing = modelsList.find((m) => m.name === uniqueName);
+
+        while (uniqueName && !shouldOverwrite && existing !== undefined) {
+            shouldOverwrite = await Utils.confirmAction(
+                'A model with that name already exists. Overwrite?',
+                `Existing: ${this.summary(existing)}\nNew: ${this.summary(newModel)}`,
             );
             if (!shouldOverwrite) {
-                uniqueName = (await vscode.window.showInputBox({
-                    placeHolder: 'a unique name for your new model',
-                    prompt: 'Enter a unique name for your new model. Leave empty to cancel entering.',
-                    value: newModel.name
-                })) ?? "";
-                uniqueName = this.sanitizeInput(uniqueName);
-                if (uniqueName) modelSameName = modelsList.find(model => model.name === uniqueName);
+                uniqueName = ((await vscode.window.showInputBox({
+                    placeHolder: 'Unique name for the new model',
+                    prompt: 'Leave empty to cancel.',
+                    value: newModel.name,
+                })) ?? '').trim();
+                if (uniqueName) existing = modelsList.find((m) => m.name === uniqueName);
             }
         }
-
-        return [uniqueName, shouldOverwrite]
+        return [uniqueName, shouldOverwrite];
     }
 
-    private getModelDetailsAsString(model: LlmModel): string {
-        return "model: " +
-            "\nname: " + model.name +
-            "\nlocal start command: " + model.localStartCommand +
-            "\nendpoint: " + model.endpoint +
-            "\nmodel name for provider: " + model.aiModel +
-            "\napi key required: " + model.isKeyRequired
+    private summary(m: LlmModel): string {
+        return `name: ${m.name} | provider model: ${m.aiModel || '(none)'}`;
     }
 }

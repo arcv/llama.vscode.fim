@@ -40,8 +40,6 @@ export class Completion {
             return null;
         }
 
-        this.app.logger.addEventLog(group, JSON.stringify([Date.now(), this.lastRequestTimer]), "");
-
         // Gather local context synchronously before entering the async block
         const prefixLines = Utils.getPrefixLines(document, position, this.app.configuration.n_prefix);
         const suffixLines = Utils.getSuffixLines(document, position, this.app.configuration.n_suffix);
