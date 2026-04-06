@@ -2,7 +2,7 @@
   "name": "llama-vscode-fim",
   "displayName": "llama-vscode-fim",
   "description": "Local LLM-assisted text completion using llama.cpp",
-  "version": "0.0.45",
+  "version": "0.0.48",
   "publisher": "arcv",
   "repository": "https://github.com/arcv/llama.vscode.fim",
   "engines": {
