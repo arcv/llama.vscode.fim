@@ -15,6 +15,23 @@
     "onLanguage:typescript",
     "onCommand.acceptFirstLine"
   ],
+  "categories": [
+    "AI",
+    "Programming Languages",
+    "Machine Learning",
+    "Snippets"
+  ],
+  "keywords": [
+    "chatgpt",
+    "local ai",
+    "FIM",
+    "autocomplete",
+    "copilot",
+    "claude",
+    "mistral",
+    "codestral",
+    "ai"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "languages": [

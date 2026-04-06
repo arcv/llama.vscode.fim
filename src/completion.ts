@@ -146,7 +146,7 @@ export class Completion {
                     }
 
                     this.app.logger.addEventLog(group, "NORMAL_RETURN", firstComplLines[0]);
-                    return resolve(this.getCompletion(newCompletions, position, spacesToRemove));
+                    return resolve(this.getCompletion(newCompletions, position, linePrefix, spacesToRemove));
 
                 } catch (err: any) {
                     if (axios.isCancel(err)) {
@@ -198,20 +198,35 @@ export class Completion {
         return undefined
     }
 
-    getCompletion = (completions: string[],
+    getCompletion = (
+        completions: string[],
         position: vscode.Position,
-        spacesToRemove: number): vscode.InlineCompletionItem[] => {
-        let completionItems: vscode.InlineCompletionItem[] = []
-        for (const completion of completions) {
+        linePrefix: string, // Added this parameter
+        spacesToRemove: number
+    ): vscode.InlineCompletionItem[] => {
+        let completionItems: vscode.InlineCompletionItem[] = [];
+
+        for (let completion of completions) {
+            let insertText = completion;
+
+            // Check if the completion already contains the text on the current line.
+            // We trim the prefix from the suggestion to avoid duplicates.
+            if (linePrefix.trim() !== "" && insertText.startsWith(linePrefix)) {
+                insertText = insertText.slice(linePrefix.length);
+            } else {
+                // Fallback to your original leading space logic for new lines/indentation
+                insertText = this.removeLeadingSpaces(insertText, spacesToRemove);
+            }
+
             const compl: vscode.InlineCompletionItem = new vscode.InlineCompletionItem(
-                this.removeLeadingSpaces(completion, spacesToRemove),
+                insertText,
                 new vscode.Range(position, position)
-            )
+            );
             completionItems.push(compl);
         }
 
         return completionItems;
-    }
+    };
 
     private getCompletionDetails = (completions: string[], position: vscode.Position, inputPrefix: string, inputSuffix: string, prompt: string) => {
         return { completions: completions, complIndex: 0, position: position, inputPrefix: inputPrefix, inputSuffix: inputSuffix, prompt: prompt };
@@ -262,10 +277,23 @@ export class Completion {
 
     // cut part of the completion in some special cases
     updateSuggestion = (suggestionLines: string[], lineSuffix: string) => {
-        if (lineSuffix.trim() != "") {
-            if (suggestionLines[0].endsWith(lineSuffix)) return suggestionLines[0].slice(0, -lineSuffix.length);
-            if (suggestionLines.length > 1) return suggestionLines[0];
+        if (suggestionLines.length > 0 && suggestionLines[0].trim() == "") {
+            suggestionLines.splice(0, 1);
         }
+
+        if (suggestionLines.length === 0) return "";
+
+        let firstLine = suggestionLines[0];
+
+        // Trim the suffix if the suggestion repeats what is already after the cursor
+        if (lineSuffix.trim() !== "") {
+            if (firstLine.endsWith(lineSuffix)) {
+                firstLine = firstLine.slice(0, -lineSuffix.length);
+            }
+        }
+
+        // Replace the first line in the array with our trimmed version
+        suggestionLines[0] = firstLine;
 
         return suggestionLines.join("\n");
     }
@@ -342,22 +370,27 @@ export class Completion {
     }
 
     insertFirstLine = async (editor: vscode.TextEditor) => {
-        // Retrieve the last inline completion item
         const lastItem = this.lastCompletion.completions[this.lastCompletion.complIndex];
-        if (!lastItem) {
-            return;
-        }
-        let lastSuggestioLines = lastItem.split('\n')
+        if (!lastItem) return;
+
+        let lastSuggestioLines = lastItem.split('\n');
         let insertLine = lastSuggestioLines[0] || '';
 
         if (insertLine.trim() == "" && lastSuggestioLines.length > 1) {
             insertLine = '\n' + lastSuggestioLines[1];
         }
 
-        // Insert the first line at the cursor
         const position = editor.selection.active;
+        const linePrefix = editor.document.lineAt(position.line).text.slice(0, position.character);
+
         await editor.edit(editBuilder => {
-            editBuilder.insert(position, insertLine);
+            // If the line we are about to insert already starts with what's on the editor...
+            if (linePrefix.length > 0 && insertLine.startsWith(linePrefix)) {
+                // Replace the existing prefix with the full line from the suggestion
+                editBuilder.replace(new vscode.Range(position.with(undefined, 0), position), insertLine);
+            } else {
+                editBuilder.insert(position, insertLine);
+            }
         });
     }
 
