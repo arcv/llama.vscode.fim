@@ -299,6 +299,11 @@
           "default": true,
           "description": "If code completion should be triggered automatically (true) or only by pressing Ctrl+l."
         },
+        "llama-vscode-fim.single_line_completion": {
+          "type": "boolean",
+          "default": true,
+          "description": "When enabled, only the first line of each completion suggestion is used. Useful for keeping completions focused when the cursor is mid-line."
+        },
         "llama-vscode-fim.debounce_ms": {
           "type": "number",
           "default": 750,

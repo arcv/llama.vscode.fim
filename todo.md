@@ -7,5 +7,10 @@ Allow the user to write a natural-language prompt inline (e.g. on a blank line o
 
 ---
 
+### Use chat-templates for auto-completion
+Use chat-template to manage the completion prompt. It can be used to replace whole blocks of code, or just add additional context to the prompt.
+
+---
+
 ### Use `.code-workspace` for Extra Context
 When a `.code-workspace` file is present in the workspace root, parse it and feed relevant metadata to the LLM as additional context in each completion request. This gives the model awareness of the project's folder layout, recommended extensions, and any workspace-level settings that hint at the tech stack.

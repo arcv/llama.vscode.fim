@@ -27,6 +27,7 @@ export class Configuration {
     max_line_suffix = 8;
     max_cache_keys = 250;
     max_parallel_completions = 3;
+    single_line_completion = true;
 
     // ── ring-buffer context ───────────────────────────────────────────────
     ring_n_chunks = 16;
@@ -95,6 +96,7 @@ export class Configuration {
         this.ring_scope = Number(config.get<number>('ring_scope') ?? 1024);
         this.ring_update_ms = Number(config.get<number>('ring_update_ms') ?? 1000);
         this.enabled = Boolean(config.get<boolean>('enabled') ?? true);
+        this.single_line_completion = Boolean(config.get<boolean>('single_line_completion') ?? true);
         this.show_info = Boolean(config.get<boolean>('show_info') ?? true);
         this.completion_models_list = config.get<any[]>('completion_models_list') ?? [];
         this.ask_install_llamacpp = Boolean(config.get<boolean>('ask_install_llamacpp') ?? true);

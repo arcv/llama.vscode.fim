@@ -146,7 +146,7 @@ export class Completion {
                     }
 
                     this.app.logger.addEventLog(group, "NORMAL_RETURN", firstComplLines[0]);
-                    return resolve(this.getCompletion(newCompletions, position, linePrefix, spacesToRemove));
+                    return resolve(this.getCompletion(newCompletions, position, linePrefix, lineSuffix, spacesToRemove));
 
                 } catch (err: any) {
                     if (axios.isCancel(err)) {
@@ -198,31 +198,114 @@ export class Completion {
         return undefined
     }
 
+    /**
+     * Compute the replacement range for a single-line mid-cursor completion.
+     *
+     * When the cursor sits inside a line (lineSuffix is non-empty) we want the
+     * suggestion to replace only the text that logically "belongs" to the
+     * inserted value and not accidentally swallow trailing punctuation that
+     * should stay (closing quote, paren, bracket, etc.).
+     *
+     * Strategy:
+     *   1. The completion must be single-line (multi-line completions are
+     *      returned with a point range — no suffix replacement).
+     *   2. We look for the longest suffix of the completion text that is also a
+     *      prefix of `lineSuffix`. That overlap is the part the model "filled
+     *      in up to" the existing suffix, so we skip it in the replacement
+     *      range end-point (i.e. we do NOT re-insert those chars).
+     *   3. If there is no overlap the replace range ends right at the cursor
+     *      (same as inserting), so existing behaviour is preserved.
+     *
+     * Example:
+     *   linePrefix  = `    print("### Start `
+     *   lineSuffix  = `")`
+     *   suggestion  = `Hello World")`   ← model echoed the closing chars
+     *   overlap     = `")`  (len 2)
+     *   insertText  = `Hello World`     ← without the echoed overlap
+     *   replaceEnd  = cursor + 2        ← consumes `")` from the document
+     */
+    /**
+     * When single-line mode is active, strip everything after the first
+     * newline so only the first line of the model's response is used.
+     */
+    private enforceLineLimit(completion: string): string {
+        if (!this.app.configuration.single_line_completion) return completion;
+        const newlineIdx = completion.indexOf('\n');
+        return newlineIdx === -1 ? completion : completion.slice(0, newlineIdx);
+    }
+
+    private computeSuffixReplaceRange(
+        completion: string,
+        position: vscode.Position,
+        lineSuffix: string,
+    ): { insertText: string; range: vscode.Range } {
+        // Only apply suffix-replace for single-line completions while the
+        // cursor is mid-line.  Multi-line suggestions keep a point range.
+        const isMidLine = lineSuffix.length > 0;
+        const isSingleLine = !completion.includes('\n');
+
+        if (!isMidLine || !isSingleLine) {
+            return {
+                insertText: completion,
+                range: new vscode.Range(position, position),
+            };
+        }
+
+        // Find the longest suffix of `completion` that matches a prefix of
+        // `lineSuffix`, so we know how many existing chars the model echoed.
+        let overlapLen = 0;
+        const maxCheck = Math.min(completion.length, lineSuffix.length);
+        for (let n = maxCheck; n >= 1; n--) {
+            if (completion.endsWith(lineSuffix.slice(0, n))) {
+                overlapLen = n;
+                break;
+            }
+        }
+
+        const insertText = overlapLen > 0
+            ? completion.slice(0, -overlapLen)   // strip the echoed suffix
+            : completion;
+
+        // Replace from cursor up to (but not past) the overlap boundary in
+        // the document, so the closing chars aren't duplicated.
+        const replaceEnd = position.translate(0, overlapLen);
+
+        return {
+            insertText,
+            range: new vscode.Range(position, replaceEnd),
+        };
+    }
+
     getCompletion = (
         completions: string[],
         position: vscode.Position,
-        linePrefix: string, // Added this parameter
+        linePrefix: string,
+        lineSuffix: string,
         spacesToRemove: number
     ): vscode.InlineCompletionItem[] => {
-        let completionItems: vscode.InlineCompletionItem[] = [];
+        const completionItems: vscode.InlineCompletionItem[] = [];
 
         for (let completion of completions) {
-            let insertText = completion;
+            // In single-line mode keep only the first line of the suggestion
+            completion = this.enforceLineLimit(completion);
+            if (!completion) continue;
 
-            // Check if the completion already contains the text on the current line.
-            // We trim the prefix from the suggestion to avoid duplicates.
-            if (linePrefix.trim() !== "" && insertText.startsWith(linePrefix)) {
-                insertText = insertText.slice(linePrefix.length);
+            // Strip the linePrefix duplicate if the model echoed it back
+            if (linePrefix.trim() !== "" && completion.startsWith(linePrefix)) {
+                completion = completion.slice(linePrefix.length);
             } else {
-                // Fallback to your original leading space logic for new lines/indentation
-                insertText = this.removeLeadingSpaces(insertText, spacesToRemove);
+                // Fallback: remove leading indentation for new-line suggestions
+                completion = this.removeLeadingSpaces(completion, spacesToRemove);
             }
 
-            const compl: vscode.InlineCompletionItem = new vscode.InlineCompletionItem(
-                insertText,
-                new vscode.Range(position, position)
+            // Compute the replacement range, accounting for a shared suffix
+            // between the completion and the existing lineSuffix so we don't
+            // duplicate closing quotes, parens, brackets, etc.
+            const { insertText, range } = this.computeSuffixReplaceRange(
+                completion, position, lineSuffix,
             );
-            completionItems.push(compl);
+
+            completionItems.push(new vscode.InlineCompletionItem(insertText, range));
         }
 
         return completionItems;
@@ -285,9 +368,12 @@ export class Completion {
 
         let firstLine = suggestionLines[0];
 
-        // Trim the suffix if the suggestion repeats what is already after the cursor
-        if (lineSuffix.trim() !== "") {
-            if (firstLine.endsWith(lineSuffix)) {
+        // Trim the suffix if the suggestion repeats what is already after the cursor.
+        // Note: do NOT strip here for mid-line completions — computeSuffixReplaceRange
+        // handles the overlap at the range level, so stripping here would cause the
+        // model-echoed closing chars to vanish entirely rather than being replaced.
+        if (lineSuffix.trim() === "") {
+            if (firstLine.endsWith(lineSuffix) && lineSuffix.length > 0) {
                 firstLine = firstLine.slice(0, -lineSuffix.length);
             }
         }
