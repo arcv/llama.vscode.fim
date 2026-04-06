@@ -120,6 +120,7 @@ export class Menu {
                 placeHolder: 'e.g. http://127.0.0.1:8012',
                 value: this.app.configuration.endpoint,
                 prompt: 'Must be a valid http:// or https:// URL',
+                ignoreFocusOut: true,
             },
         );
 
