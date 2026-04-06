@@ -4,6 +4,7 @@ import { log } from './debug-logger';
 
 const ITEMS = {
     TOGGLE_AUTO: 'auto_trigger',
+    SET_ENDPOINT: 'set_endpoint',
     EDIT_SETTINGS: 'edit_settings',
     HOW_TO: 'how_to',
     DEBUG_LOG: 'debug_log',
@@ -51,6 +52,11 @@ export class Menu {
                     : 'Completions only on Ctrl+L',
             },
             {
+                key: ITEMS.SET_ENDPOINT,
+                label: () => '$(plug) Set endpoint',
+                description: () => `Current: ${this.app.configuration.endpoint}`,
+            },
+            {
                 key: ITEMS.EDIT_SETTINGS,
                 label: () => '$(gear) Edit settings',
                 description: () => 'Open llama-vscode-fim settings',
@@ -77,6 +83,10 @@ export class Menu {
                 log.info('Menu', `auto-trigger → ${this.app.configuration.auto}`);
                 break;
 
+            case ITEMS.SET_ENDPOINT:
+                await this.setEndpoint();
+                break;
+
             case ITEMS.EDIT_SETTINGS:
                 await vscode.commands.executeCommand('workbench.action.openSettings', 'llama-vscode-fim');
                 break;
@@ -89,6 +99,39 @@ export class Menu {
                 this.app.debugLogger.show();
                 break;
         }
+    }
+
+    private async setEndpoint() {
+        const isValidEndpoint = (value: string): boolean => {
+            const trimmed = value.trim();
+            try {
+                const url = new URL(trimmed);
+                return url.protocol === 'http:' || url.protocol === 'https:';
+            } catch {
+                return false;
+            }
+        };
+
+        const newEndpoint = await Utils.getValidatedInput(
+            'Enter the llama-server endpoint URL',
+            isValidEndpoint,
+            3,
+            {
+                placeHolder: 'e.g. http://127.0.0.1:8012',
+                value: this.app.configuration.endpoint,
+                prompt: 'Must be a valid http:// or https:// URL',
+            },
+        );
+
+        if (newEndpoint === undefined) {
+            log.info('Menu', 'set endpoint cancelled');
+            return;
+        }
+
+        const trimmed = newEndpoint.trim();
+        await this.app.configuration.updateConfigValue('endpoint', trimmed);
+        log.info('Menu', `endpoint updated → ${trimmed}`);
+        vscode.window.showInformationMessage(`llama-vscode-fim: endpoint set to ${trimmed}`);
     }
 
     private showHowTo() {
@@ -106,3 +149,5 @@ export class Menu {
         );
     }
 }
+
+import { Utils } from './utils';
