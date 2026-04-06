@@ -1,0 +1,85 @@
+name: Build VSIX
+
+on:
+  push:
+    branches: [main, master]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build & publish llama-vscode-fim-latest.vsix
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Bundle extension
+        run: npm run bundle
+
+      - name: Install vsce
+        run: npm install -g @vscode/vsce
+
+      - name: Read version from package.json
+        id: pkg
+        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+
+      - name: Package VSIX
+        run: vsce package --out llama-vscode-fim-${{ steps.pkg.outputs.version }}.vsix --no-git-tag-version
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: llama-vscode-fim-${{ steps.pkg.outputs.version }}
+          path: llama-vscode-fim-${{ steps.pkg.outputs.version }}.vsix
+          retention-days: 90
+          if-no-files-found: error
+
+      # Only create/update the rolling "latest" GitHub Release on pushes to main/master
+      - name: Upload to GitHub Release (latest)
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest build (v${{ steps.pkg.outputs.version }})
+          body: |
+            Automatically built from the latest commit on `${{ github.ref_name }}`.
+
+            **Version:** ${{ steps.pkg.outputs.version }}
+            **Commit:** ${{ github.sha }}
+            **Built at:** ${{ github.event.head_commit.timestamp }}
+
+            ### Install
+            Download `llama-vscode-fim-${{ steps.pkg.outputs.version }}.vsix` and run:
+            ```bash
+            code --install-extension llama-vscode-fim-${{ steps.pkg.outputs.version }}.vsix
+            ```
+          files: llama-vscode-fim-${{ steps.pkg.outputs.version }}.vsix
+          prerelease: true
+          make_latest: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # On version tags (v*), also create a proper versioned release
+      - name: Upload to GitHub Release (versioned)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: llama-vscode-fim-${{ steps.pkg.outputs.version }}.vsix
+          generate_release_notes: true
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

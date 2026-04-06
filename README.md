@@ -102,6 +102,22 @@ The plugin requires FIM-compatible models: [HF collection](https://huggingface.c
 
 ---
 
+## Download the Latest Build
+
+Every push to `main`/`master` automatically builds and publishes a ready-to-install `.vsix` via GitHub Actions.
+
+**Download:** go to the [Releases page](https://github.com/arcv/llama.vscode.fim/releases/tag/latest) and grab `llama-vscode-fim-<version>.vsix`, then install it:
+
+```bash
+code --install-extension llama-vscode-fim-0.0.45.vsix
+```
+
+Or from the VS Code UI: Extensions view (`Ctrl+Shift+X`) → `···` menu → **Install from VSIX…**
+
+> The version in the filename always matches the `version` field in `package.json`. Tagged releases (`v*`) also produce a numbered release with auto-generated changelog notes.
+
+---
+
 ## Building the Extension
 
 ### Prerequisites
